@@ -1,0 +1,221 @@
+"""
+Hill fitting module TBD
+"""
+import warnings
+import numpy as np
+from scipy.optimize import brute, minimize
+
+def get_fit_args(x,y):
+    """
+
+    :param x: x values
+    :param y: y values
+    :return: fit arguments, tuple of (non zero x, y at non zero x, y at zero x )
+    """
+    idx_zero = np.where(x == 0)[0]
+    idx_non_zero = np.where(x != 0)[0]
+    x_non_zero = x[idx_non_zero]
+    y_non_zero = y[idx_non_zero]
+    y_at_x_zero = y[idx_zero]
+    return (x_non_zero,y_non_zero,y_at_x_zero)
+
+def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
+    """
+
+    :param min_v: see hill_log_Ka
+    :param max_v:  see hill_log_Ka
+    :param log_K_a: see hill_log_Ka
+    :param n: see hill_log_Ka
+    :param x: see hill_log_Ka
+    :return: jacobian of the hill equation
+    """
+    ratio = np.exp(log_K_a)/x
+    exp = ratio**n
+    denom = (exp + 1)**-1
+    return np.array([
+        1 - denom,
+        denom,
+        (max_v - min_v) * (-n * exp)* (denom**2),
+        (max_v - min_v) * (-exp * np.log(ratio)) * denom**2,
+    ])
+
+
+
+def hill_log_Ka(min_v,max_v,log_K_a,n,x):
+    """
+    See https://reaction-networks.net/wiki/Hill_kinetics
+    theta = ( (K_a/L)^n + 1)-1
+    theta = ( (exp(log_K_a)/L)^n + 1)-1
+
+    :param x:  concentration, units of exp(log_K_a)
+    :param min_v:  minimum value
+    :param max_v:  maximum value
+    :param log_K_a: log of concentration
+    :param n: hill fit coefficient
+    :return: hill fit information
+    """
+    return min_v + (max_v - min_v ) * ( (np.exp(log_K_a)/x)**n + 1)**-1
+
+def hill_cost(x,y,y_at_x_zero,**kwargs):
+    """
+
+    :param x: x value, should not have any zeros
+    :param y:  y value
+    "param y_at_x_zero: y values where x is zero
+    :param kwargs:  see hill_log_Ka
+    :return: sum of squared errors
+    """
+    # where x is zero, cost is just
+    # sum((y_at_x_zero - min_v))*2)
+    # since the hill function is just min val at zero concentration
+    return sum((y-hill_log_Ka(x=x,**kwargs))**2) + \
+          (sum(y_at_x_zero-kwargs["min_v"])**2 if y_at_x_zero.size > 0 else 0)
+
+
+class Fitter():
+    def __init__(self,param_names,ranges=None,n_brute=0,fixed_params=None):
+        """
+
+        :param param_names: names of the paramenters, length N
+        :param ranges: list of size N, each element a min and max range
+        :param Ns:  number of points to check on coarse grid
+        :param fixed_params:  number of fixed parmaeters
+        """
+        fixed_params = {} if fixed_params is None else fixed_params
+        ranges = [] if ranges is None else ranges
+        self.param_names = param_names
+        self.ranges = ranges
+        self.fixed_params = fixed_params
+        self.n_brute = n_brute
+        self.opt_dict = {}
+
+    def _get_params(self,args):
+        """
+
+        :param args: from fitter
+        :return: dictionary of all fit parameters
+        """
+        kw = dict([ [k,v] for k,v in zip(self.param_names,args)])
+        for k,v in self.fixed_params.items():
+            assert k not in kw
+            kw[k] = v
+        return kw
+
+    def __call__(self,args,x,y,y_at_x_zero):
+        """
+
+        :param args: parameters to fit
+        :param x: x values
+        :param y: y values
+        :param y_at_x_zero: y values where x is zero
+        :return: cost associated with these parameters (SSQ)
+        """
+        kw = self._get_params(args=args)
+        return hill_cost(x=x,y=y,y_at_x_zero=y_at_x_zero,**kw)
+
+    def fit(self,x,y):
+        """
+
+        :param x: x values; concentration
+        :param y: y values; signal
+        :return: optimized fit
+        """
+
+        opt = brute(func=self, ranges=self.ranges, args=get_fit_args(x,y),
+                    Ns=self.n_brute,full_output=False)
+        self.opt_dict = dict([ [k,v]
+                               for k,v in zip(self.param_names,opt)])
+        for k,v in self.fixed_params.items():
+            self.opt_dict[k] = v
+        return self.opt_dict
+
+    def jacobian(self,args,x,y,y_zero):
+        """
+
+        :param args:  see __call__
+        :param x:  see __call__
+        :param y:  see __call__
+        :return: jacobian given these parameters
+        """
+        kw = self._get_params(args=args)
+        # cost = sum( y - hill(params) )**2
+        # cost jacboian =
+        # = sum( -2 (y-hill(params) * jacobian(hill))
+        hill = hill_log_Ka(x=x,**kw)
+        # where x is zero,
+        # the jacobian is zero except for the min_v element which is 1
+        # the hill function is just min_v
+        to_ret = np.sum( -2 * (y-hill) * hill_log_Ka_jacobian(x=x,**kw),axis=1) + \
+                 ( sum(-2 * (y_zero - kw["min_v"])) if y_zero.size > 0 else 0)
+        return to_ret
+
+def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
+                range_n_intial=None):
+    """
+
+    :param x: concentration
+    :param y:  signal
+    :param range_val_initial: 2-tuple; min and max of coarse grid for y values
+    :param range_conc_initial: 2-tuple, min and max of corase grid for log scaled concentration
+    :param range_n_intial:  2-tuple, min and max of coarse grid for hill coefficient
+    :return:
+    """
+    idx_non_zero = np.where(x != 0)[0]
+    conc_min, conc_max = min(np.log(x[idx_non_zero])), max(np.log(x[idx_non_zero]))
+    min_v, max_v = min(y), max(y)
+    dv = min_v + max_v
+    if range_val_initial is None:
+        range_val_initial = [min_v - dv / 2, max_v + dv / 2]
+    if range_conc_initial is None:
+        range_conc_initial = [conc_min - np.log(3), conc_max + np.log(3)]
+    if range_n_intial is None:
+        range_n_intial = [0, 5]
+    ranges = [range_val_initial, range_val_initial, range_conc_initial, range_n_intial]
+    return ranges
+
+def _param_names():
+    return ['min_v', 'max_v', 'log_K_a', 'n']
+
+def _initial_guess(x,y,ranges,coarse_n,fine_n):
+    _, _, range_conc_initial, _ = ranges
+    all_names = _param_names()
+    fit_all = Fitter(param_names=all_names, ranges=ranges, n_brute=coarse_n)
+    fit_all.fit(x=x, y=y)
+    fixed_params = dict([[k, v] for k, v in fit_all.opt_dict.items()
+                         if k != "log_K_a"])
+    fit_Ka = Fitter(param_names=['log_K_a'], n_brute=fine_n,
+                    ranges=[range_conc_initial],
+                    fixed_params=fixed_params)
+    fit_Ka.fit(x=x, y=y)
+    # use the coarse grid for all the other parameters
+    p0 = fit_all.opt_dict
+    # overwrite
+    p0["log_K_a"] = fit_Ka.opt_dict["log_K_a"]
+    # final fitter has no fixed parameters; completely free
+    x0 = [p0[n] for n in all_names]
+    return x0
+
+def fit(x,y,coarse_n=10,fine_n=1000,**kw):
+    """
+
+    :param x: concentration , length
+    :param y: signal, length N
+    :param coarse_n:  number of parameters for coare parameter estimation
+    :param fine_n:  numbr of parameters for potency estimation
+    :return: dictionary of best fit parameters for hill_log_Ka
+    """
+    idx_not_nan = np.where(~(np.isnan(x) | np.isnan(y)))[0]
+    if len(idx_not_nan) <= 2:
+        warnings.warn("Need at least 4 non-nan points;"+\
+                      f"only had {len(idx_not_nan)}. Fit values undefined (nan)")
+        return dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan, n=np.nan)
+    x = x[idx_not_nan]
+    y = y[idx_not_nan]
+    ranges = _get_ranges(x=x,y=y,**kw)
+    x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n)
+    fit_final = Fitter(param_names=_param_names())
+    minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
+                          jac=fit_final.jacobian, x0=x0)
+    # fit everything in a free manner
+    kw_fit = dict([[n, x_i] for n, x_i in zip(fit_final.param_names, minimize_v.x)])
+    return kw_fit

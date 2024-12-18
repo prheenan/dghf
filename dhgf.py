@@ -1,3 +1,0 @@
-"""
-Hill fitting module TBD
-"""
