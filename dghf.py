@@ -19,6 +19,60 @@ def get_fit_args(x,y):
     y_at_x_zero = y[idx_zero]
     return (x_non_zero,y_non_zero,y_at_x_zero)
 
+def hill_log_Ka_hessian(min_v,max_v,log_K_a,n,x):
+    """
+    see: Wolframalpha output of
+
+    hessian of (v0 + (v1 - v0)/( (k/x)^n +1)) with respect to (v0,v1,k,n)
+
+    then Plain Text -> "Wolfram Language plain text output", and put the string into a variable a
+
+    a.replace("Log","np.log").replace("[","(").replace("]",")").replace("^","**").replace("{","[").replace("}","]")
+
+    :param min_v:
+    :param max_v:
+    :param log_K_a:
+    :param n:
+    :param x:
+    :return:
+    """
+    k = np.exp(log_K_a)
+    v0 = min_v
+    v1 = max_v
+    r2 = (1 + (k/x)**n)**2
+    r3 = (1 + (k/x)**n)**3
+    rn = (n*(k/x)**(-1 + n))
+    logr = np.log(k/x)
+    f1 = \
+        (n * (-v0 + v1) * logr * (k/x)**(-1 + n))/(x*r2) + (2 * n * (-v0 + v1) * (k/x)**(-1 + 2*n) * logr)/(x*r3)
+    return \
+    [
+    [
+        0,
+        0,
+        rn/(x*r2),
+        (logr*(k/x)**n)/r2,
+    ],
+    [
+        0,
+        0,
+        -(rn/(x*r2)),
+        -(logr*((k/x)**n )/r2)
+    ],
+    [
+        rn/(x*r2),
+        -(rn/(x*r2)),
+        -(((-1 + n) * n * (-v0 + v1) (k/x)**(-2 + n))/(r2*(x**2) )) + (2 *(n**2)* (-v0 + v1)* (k/x)**(-2 + 2*n))/(r3*(x**2) ),
+        -(((-v0 + v1) *(k/x)**(-1 + n))/(x*r2)) - f1
+    ],
+    [
+        (logr*(k/x)**n )/r2,
+        -((logr*(k/x)**n )/r2),
+        -(((-v0 + v1) *(k/x)**n)/(k * r2)) - f1,
+        -(((-v0 + v1) * logr**2 * (k/x)**n )/r2) + (2 * (-v0 + v1) * (k/x)**(2 * n) * logr**2)/r3
+    ]]
+
+
 def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
     """
 
@@ -129,6 +183,7 @@ class Fitter():
             self.opt_dict[k] = v
         return self.opt_dict
 
+
     def jacobian(self,args,x,y,y_zero):
         """
 
@@ -142,12 +197,22 @@ class Fitter():
         # cost jacboian =
         # = sum( -2 (y-hill(params) * jacobian(hill))
         hill = hill_log_Ka(x=x,**kw)
-        # where x is zero,
-        # the jacobian is zero except for the min_v element which is 1
-        # the hill function is just min_v
         to_ret = np.sum( -2 * (y-hill) * hill_log_Ka_jacobian(x=x,**kw),axis=1) + \
-                 ( sum(-2 * (y_zero - kw["min_v"])) if y_zero.size > 0 else 0)
+            (sum(-2 * (y_zero - kw["min_v"])) if y_zero.size > 0 else 0)
         return to_ret
+
+    def hessian(self,args,x,y,_):
+        kw = self._get_params(args=args)
+        hill = hill_log_Ka(x=x,**kw)
+        # loss function is ( y - hill) ^2
+        # first deriv wrt x_i is
+        # -2 * (y-hill) * dhill/dxi (i.e., last term is jacobian)
+        # second deriv wrt xj (giving hessian) is
+        # -2 * (y-hill) * ddhill/(dxi*dxj) +  -2 * dhill/dxj * dhill/dxi
+        # note for x = 0 the hessian is zero everywhere, so the first term like ddhill/(dxi*dxj) would be zero
+        # the second term (dhill/dxj * dhill/dxi) is just the outer product of the jacobian
+        jac = hill_log_Ka_jacobian(x=x,**kw)
+        return -2 * (y-hill) * hill_log_Ka_hessian(x=x,**kw) - 2 * np.outer(jac,jac)
 
 def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
                 range_n_intial=None,bounds=None):
@@ -181,12 +246,12 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
         ranges_final.append(range_i)
     return ranges_final
 
-def _param_names():
+def param_names_order():
     return ['min_v', 'max_v', 'log_K_a', 'n']
 
 def _initial_guess(x,y,ranges,coarse_n,fine_n):
     _, _, range_conc_initial, _ = ranges
-    all_names = _param_names()
+    all_names = param_names_order()
     fit_all = Fitter(param_names=all_names, ranges=ranges, n_brute=coarse_n)
     fit_all.fit(x=x, y=y)
     fixed_params = dict([[k, v] for k, v in fit_all.opt_dict.items()
@@ -223,10 +288,9 @@ def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,**kw):
     y = y[idx_not_nan]
     ranges = _get_ranges(x=x,y=y,bounds=bounds,**kw)
     x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n)
-    fit_final = Fitter(param_names=_param_names())
+    fit_final = Fitter(param_names=param_names_order())
     minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
-                          jac=fit_final.jacobian, x0=x0,
-                          bounds=bounds)
+                          jac=fit_final.jacobian, x0=x0,bounds=bounds)
     # fit everything in a free manner
     kw_fit = dict([[n, x_i] for n, x_i in zip(fit_final.param_names, minimize_v.x)])
     return kw_fit

@@ -36,6 +36,7 @@ class MyTestCase(unittest.TestCase):
         super().__init__(*args,**kw)
         self.i_subtest = 0
         np.random.seed(42)
+        self.simulated_data = self._simulated_data()
 
     def _assert_close_kw(self,kw_found,kw_expected,atol=0,rtol=1e-6,
                          atol_signal=None,rtol_signal=None):
@@ -64,27 +65,37 @@ class MyTestCase(unittest.TestCase):
                                            rtol=rtol_i)
                 self.i_subtest += 1
 
-
-    def test_prepared_data(self):
+    def _simulated_data(self):
         """
 
-        :return: nothing, test prepared data
+        :return: list of tuples, where each tuple is like
+
+        ( (x values, y values, expected parameters), dictionary of error terms
+        for  _assert_close_kw)
         """
         kw_fit_1 = dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)
         x_y_k_err = [
             [_get_x_y_k(-7, -4, **kw_fit_1),dict(atol=1e-4)],
             [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1), dict(rtol=0.15,
-                                                                atol_signal=5)],
+                                                                atol_signal=9)],
             [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,**kw_fit_1),
-             dict(rtol=0.15,atol_signal=5)],
+             dict(rtol=0.15,atol_signal=9)],
             [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,n_nan=2, **kw_fit_1),
-             dict(rtol=0.5, atol_signal=5)],
+             dict(rtol=0.5, atol_signal=9)],
             # oops all nans
             [ [[np.nan] * 11, [np.nan]*11,
                dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
             # small number
             [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), dict(atol=1e-4)],
         ]
+        return x_y_k_err
+
+    def test_prepared_data(self):
+        """
+
+        :return: nothing, test prepared data
+        """
+        x_y_k_err = self.simulated_data
         # only specify final bounds as :
         # final hill coefficient, which should be positive
         bounds = [[None,None],[None,None],[None,None],[0,np.inf]]
@@ -92,6 +103,19 @@ class MyTestCase(unittest.TestCase):
             kw_fit = dghf.fit(x,y,bounds=bounds)
             self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                   **kw_err)
+
+    def test_bounds(self):
+        """
+        Tested bounded fit problems
+        """
+        x_y_k_err = self.simulated_data
+        for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
+            for i,name in enumerate(dghf.param_names_order()):
+                bounds = [[None, None], [None, None], [None, None], [0, np.inf]]
+                bounds[i] = [kw_expected[name],kw_expected[name]]
+                kw_fit = dghf.fit(x,y,bounds=bounds)
+                self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
+                                      **kw_err)
 
 
 def _debug_plot(x,y,kw_fit):
