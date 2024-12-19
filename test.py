@@ -82,9 +82,14 @@ class MyTestCase(unittest.TestCase):
             # oops all nans
             [ [[np.nan] * 11, [np.nan]*11,
                dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
+            # small number
+            [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), dict(atol=1e-4)],
         ]
+        # only specify final bounds as :
+        # final hill coefficient, which should be positive
+        bounds = [[None,None],[None,None],[None,None],[0,np.inf]]
         for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
-            kw_fit = dghf.fit(x,y)
+            kw_fit = dghf.fit(x,y,bounds=bounds)
             self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                   **kw_err)
 

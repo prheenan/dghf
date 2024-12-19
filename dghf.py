@@ -150,7 +150,7 @@ class Fitter():
         return to_ret
 
 def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
-                range_n_intial=None):
+                range_n_intial=None,bounds=None):
     """
 
     :param x: concentration
@@ -158,6 +158,7 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
     :param range_val_initial: 2-tuple; min and max of coarse grid for y values
     :param range_conc_initial: 2-tuple, min and max of corase grid for log scaled concentration
     :param range_n_intial:  2-tuple, min and max of coarse grid for hill coefficient
+    :param bounds: final bounds for fit
     :return:
     """
     idx_non_zero = np.where(x != 0)[0]
@@ -169,9 +170,16 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
     if range_conc_initial is None:
         range_conc_initial = [conc_min - np.log(3), conc_max + np.log(3)]
     if range_n_intial is None:
-        range_n_intial = [0, 5]
+        range_n_intial = [-5, 5]
     ranges = [range_val_initial, range_val_initial, range_conc_initial, range_n_intial]
-    return ranges
+    # modify the ranges according to any initial constraints the user gives as bounds
+    ranges_final = []
+    for range_v, bounds_v in zip(ranges, bounds):
+        range_i = []
+        for r1, b1, func in zip(range_v, bounds_v, [max, min]):
+            range_i.append(r1 if b1 is None else func(r1, b1))
+        ranges_final.append(range_i)
+    return ranges_final
 
 def _param_names():
     return ['min_v', 'max_v', 'log_K_a', 'n']
@@ -195,13 +203,15 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n):
     x0 = [p0[n] for n in all_names]
     return x0
 
-def fit(x,y,coarse_n=10,fine_n=1000,**kw):
+def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,**kw):
     """
 
     :param x: concentration , length
     :param y: signal, length N
     :param coarse_n:  number of parameters for coare parameter estimation
     :param fine_n:  numbr of parameters for potency estimation
+    :param kw: bounds on the initial guess
+    :param bounds: bounds on the final fit
     :return: dictionary of best fit parameters for hill_log_Ka
     """
     idx_not_nan = np.where(~(np.isnan(x) | np.isnan(y)))[0]
@@ -211,11 +221,12 @@ def fit(x,y,coarse_n=10,fine_n=1000,**kw):
         return dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan, n=np.nan)
     x = x[idx_not_nan]
     y = y[idx_not_nan]
-    ranges = _get_ranges(x=x,y=y,**kw)
+    ranges = _get_ranges(x=x,y=y,bounds=bounds,**kw)
     x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n)
     fit_final = Fitter(param_names=_param_names())
     minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
-                          jac=fit_final.jacobian, x0=x0)
+                          jac=fit_final.jacobian, x0=x0,
+                          bounds=bounds)
     # fit everything in a free manner
     kw_fit = dict([[n, x_i] for n, x_i in zip(fit_final.param_names, minimize_v.x)])
     return kw_fit
