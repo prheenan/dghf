@@ -33,7 +33,6 @@ dependencies:
   - dill=0.3.8
   - distlib=0.3.8
   - entrypoints=0.4
-  - exceptiongroup=1.2.0
   - executing=0.8.3
   - expat=2.6.4
   - filelock=3.13.1
@@ -91,7 +90,6 @@ dependencies:
   - pandocfilters=1.5.0
   - parso=0.8.4
   - pexpect=4.8.0
-  - pickleshare=0.7.5
   - pip=24.2
   - platformdirs=3.10.0
   - plotly=5.6.0
@@ -99,6 +97,7 @@ dependencies:
   - pre_commit=3.4.0
   - prometheus_client=0.13.1
   - prompt-toolkit=3.0.43
+  - prompt_toolkit=3.0.43
   - psutil=5.9.0
   - ptyprocess=0.7.0
   - pure_eval=0.2.2

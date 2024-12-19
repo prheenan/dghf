@@ -73,20 +73,28 @@ class MyTestCase(unittest.TestCase):
         ( (x values, y values, expected parameters), dictionary of error terms
         for  _assert_close_kw)
         """
-        kw_fit_1 = dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)
+        kw_fit_1 = {'min_v':10, 'max_v':100, 'log_K_a':np.log(1e-6),'n':1}
         x_y_k_err = [
-            [_get_x_y_k(-7, -4, **kw_fit_1),dict(atol=1e-4)],
-            [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1), dict(rtol=0.15,
-                                                                atol_signal=9)],
+            [_get_x_y_k(-7, -4, **kw_fit_1),{'atol':1e-4}],
+            [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1),
+             {'rtol':0.15,'atol_signal':9}],
             [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,**kw_fit_1),
-             dict(rtol=0.15,atol_signal=9)],
+             {'rtol':0.15,'atol_signal':9}],
             [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,n_nan=2, **kw_fit_1),
-             dict(rtol=0.5, atol_signal=9)],
+             {'rtol':0.5, 'atol_signal':9}],
             # oops all nans
             [ [[np.nan] * 11, [np.nan]*11,
                dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
             # small number
-            [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), dict(atol=1e-4)],
+            [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), {"atol":1e-4}],
+            # try only going to 10 uM (-5)
+            [_get_x_y_k(-7, -5, noise_scale=5, **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)),
+             {'rtol':0.16,'atol_signal':9}],
+            # try only 8 points
+            [_get_x_y_k(-7, -4, noise_scale=5,n_size=8,
+                        **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6), n=1)),
+             {'rtol':0.23, 'atol_signal':26}],
+
         ]
         return x_y_k_err
 
