@@ -174,9 +174,10 @@ class Fitter():
         :param y: y values; signal
         :return: optimized fit
         """
-
-        opt = brute(func=self, ranges=self.ranges, args=get_fit_args(x,y),
-                    Ns=self.n_brute,full_output=False)
+        with warnings.catch_warnings(category=RuntimeWarning):
+            warnings.simplefilter("ignore")
+            opt = brute(func=self, ranges=self.ranges, args=get_fit_args(x,y),
+                        Ns=self.n_brute,full_output=False)
         self.opt_dict = dict([ [k,v]
                                for k,v in zip(self.param_names,opt)])
         for k,v in self.fixed_params.items():
