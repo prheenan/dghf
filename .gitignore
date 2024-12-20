@@ -1,4 +1,5 @@
 # PRH ignores
+iframe_figures/*
 **/*.DS_Store
 *.png
 *.svg

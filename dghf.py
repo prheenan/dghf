@@ -237,13 +237,16 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
     if range_n_intial is None:
         range_n_intial = [-5, 5]
     ranges = [range_val_initial, range_val_initial, range_conc_initial, range_n_intial]
-    # modify the ranges according to any initial constraints the user gives as bounds
-    ranges_final = []
-    for range_v, bounds_v in zip(ranges, bounds):
-        range_i = []
-        for r1, b1, func in zip(range_v, bounds_v, [max, min]):
-            range_i.append(r1 if b1 is None else func(r1, b1))
-        ranges_final.append(range_i)
+    if bounds is not None:
+        # modify the ranges according to any initial constraints the user gives as bounds
+        ranges_final = []
+        for range_v, bounds_v in zip(ranges, bounds):
+            range_i = []
+            for r1, b1, func in zip(range_v, bounds_v, [max, min]):
+                range_i.append(r1 if b1 is None else func(r1, b1))
+            ranges_final.append(range_i)
+    else:
+        ranges_final = ranges
     return ranges_final
 
 def param_names_order():
@@ -268,7 +271,7 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n):
     x0 = [p0[n] for n in all_names]
     return x0
 
-def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,**kw):
+def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
     """
 
     :param x: concentration , length
@@ -289,8 +292,11 @@ def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,**kw):
     ranges = _get_ranges(x=x,y=y,bounds=bounds,**kw)
     x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n)
     fit_final = Fitter(param_names=param_names_order())
-    minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
-                          jac=fit_final.jacobian, x0=x0,bounds=bounds)
+    with warnings.catch_warnings(category=RuntimeWarning):
+        warnings.simplefilter("ignore")
+        minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
+                              method=method,
+                              jac=fit_final.jacobian, x0=x0,bounds=bounds)
     # fit everything in a free manner
     kw_fit = dict([[n, x_i] for n, x_i in zip(fit_final.param_names, minimize_v.x)])
     return kw_fit

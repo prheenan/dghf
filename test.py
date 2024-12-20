@@ -2,6 +2,8 @@
 Testing module for hill fitter
 """
 import unittest
+import warnings
+
 import numpy as np
 import plotly.graph_objects as go
 import dghf
@@ -103,6 +105,7 @@ class MyTestCase(unittest.TestCase):
 
         :return: nothing, test prepared data
         """
+        self.i_subtest = 0
         x_y_k_err = self.simulated_data
         # only specify final bounds as :
         # final hill coefficient, which should be positive
@@ -111,6 +114,20 @@ class MyTestCase(unittest.TestCase):
             kw_fit = dghf.fit(x,y,bounds=bounds)
             self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                   **kw_err)
+
+    def test_overflow_inducing_runs(self):
+        """
+        test runs which should induced overflow
+        """
+        self.i_subtest = 0
+        x_y_k_err = self.simulated_data
+        bounds = [[None,None],[None,None],[None,None],[0,np.inf]]
+        for (x,y,_),__ in x_y_k_err[::-1]:
+            with self.subTest(i=self.i_subtest):
+                with warnings.catch_warnings(category=RuntimeWarning):
+                    warnings.simplefilter("error",category=RuntimeWarning)
+                    dghf.fit(x,y,bounds=bounds,coarse_n=2)
+            self.i_subtest += 1
 
     def test_bounds(self):
         """
