@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 import plotly.graph_objects as go
 import dghf
+from scripts import canvass_download
 
 def _get_x_y_k(log10_i=-9,log10_f=-4,noise_scale=0,n_zero=0,n_nan=0,n_size=11,**kw):
     """
@@ -142,6 +143,25 @@ class MyTestCase(unittest.TestCase):
                 self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                       **kw_err)
 
+    def test_canvass(self):
+        """
+        Test the canvass data set
+
+        import plotly
+        np.bool8 = np.bool
+        from plotly import express as px
+        df_canvass["[M]"] = df_canvass["Concentration (M)"]
+        df_canvass["%"] = df_canvass["Activity (%)"]
+        df_canvass["ID"] = df_canvass["PUBCHEM_CID"].astype(int)
+        df_canvass["assay"] = df_canvass["Assay"].astype(str)
+        fig = px.line(df_canvass,log_x=True,x="[M]",facet_col_wrap=20,
+                      facet_row_spacing=0.01,
+                      y="%",facet_col="ID",color="assay",height=2000,width=2000,
+                      facet_col_spacing=0.01,range_y=[-100,200])
+        fig.show()
+        """
+        canvass_download.read_canvass_data(out_dir="./out/test/cache_canvass")
+
 
 def _debug_plot(x,y,kw_fit):
     """
@@ -160,6 +180,7 @@ def _debug_plot(x,y,kw_fit):
     fig.add_trace(go.Scatter(x=x_interp, y=y_interp, mode='lines', name="Fit"))
     fig.update_layout(xaxis_type="log")
     fig.show()
+
 
 
 
