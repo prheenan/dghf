@@ -8,6 +8,8 @@ from scipy.optimize import brute, minimize
 
 # float vector for numba
 float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
+int_vector = numba.types.Array(dtype=numba.int64, ndim=1, layout="C")
+
 
 def get_fit_args(x,y):
     """
@@ -77,14 +79,14 @@ def hill_log_Ka_hessian(min_v,max_v,log_K_a,n,x):
     ]]
 
 
-def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
+def hill_log_Ka_jacobian(x,min_v,max_v,log_K_a,n):
     """
 
+    :param x: see hill_log_Ka
     :param min_v: see hill_log_Ka
     :param max_v:  see hill_log_Ka
     :param log_K_a: see hill_log_Ka
     :param n: see hill_log_Ka
-    :param x: see hill_log_Ka
     :return: jacobian of the hill equation
     """
     ratio = np.exp(log_K_a)/x
@@ -98,8 +100,8 @@ def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
     ])
 
 
-@numba.jit(float_vector(numba.float64,numba.float64,numba.float64,numba.float64,float_vector))
-def hill_log_Ka(min_v,max_v,log_K_a,n,x):
+@numba.jit(float_vector(float_vector,numba.float64,numba.float64,numba.float64,numba.float64))
+def hill_log_Ka(x,min_v,max_v,log_K_a,n):
     """
     See https://reaction-networks.net/wiki/Hill_kinetics
     theta = ( (K_a/L)^n + 1)-1
@@ -130,8 +132,21 @@ def hill_cost(x,y,y_at_x_zero,min_v,max_v,log_K_a,n):
     return sum((y-hill_log_Ka(x=x,min_v=min_v,max_v=max_v,log_K_a=log_K_a,n=n))**2) + \
           (sum(y_at_x_zero-min_v)**2 if y_at_x_zero.size > 0 else 0)
 
+#@numba.jit(float_vector(int_vector, float_vector,float_vector))
+def _get_params(variable_index,arg_list,args):
+    """
+
+    :param args: from fitter
+    :return: dictionary of all fit parameters
+    """
+    for i, v in zip(variable_index, args):
+        arg_list[i] = v
+    return arg_list
 
 class Fitter():
+    """
+    Class to enable fitting of one or more hill parameters
+    """
     def __init__(self,param_names,ranges=None,n_brute=0,fixed_params=None):
         """
 
@@ -142,19 +157,20 @@ class Fitter():
         """
         fixed_params = {} if fixed_params is None else fixed_params
         ranges = [] if ranges is None else ranges
+        all_names = param_names_order()
+        assert set(list(fixed_params.keys())) | set(param_names)  == set(all_names)
+        self.arg_list = np.array([ np.nan for _ in all_names],dtype=np.float64)
+        for k,v in fixed_params.items():
+            self.arg_list[all_names.index(k)] = v
+        self.variable_index = np.array([ all_names.index(p) for p in param_names],
+                                       dtype=np.int64)
         self.param_names = param_names
         self.ranges = ranges
         self.fixed_params = fixed_params
         self.n_brute = n_brute
         self.opt_dict = {}
 
-    def _get_params(self,args):
-        """
 
-        :param args: from fitter
-        :return: dictionary of all fit parameters
-        """
-        return { k:v for k,v in zip(self.param_names,args) } | self.fixed_params
 
     def __call__(self,args,x,y,y_at_x_zero):
         """
@@ -165,8 +181,8 @@ class Fitter():
         :param y_at_x_zero: y values where x is zero
         :return: cost associated with these parameters (SSQ)
         """
-        kw = self._get_params(args=args)
-        return hill_cost(x=x,y=y,y_at_x_zero=y_at_x_zero,**kw)
+        return hill_cost(x,y,y_at_x_zero,
+                         *_get_params(self.variable_index,self.arg_list,args))
 
     def fit(self,x,y):
         """
@@ -194,18 +210,27 @@ class Fitter():
         :param y:  see __call__
         :return: jacobian given these parameters
         """
-        kw = self._get_params(args=args)
+        params = _get_params(self.variable_index,self.arg_list,args)
         # cost = sum( y - hill(params) )**2
         # cost jacboian =
         # = sum( -2 (y-hill(params) * jacobian(hill))
-        hill = hill_log_Ka(x=x,**kw)
-        to_ret = np.sum( -2 * (y-hill) * hill_log_Ka_jacobian(x=x,**kw),axis=1) + \
-            (sum(-2 * (y_zero - kw["min_v"])) if y_zero.size > 0 else 0)
+        # at x=0, then jacobian is just min_v which is params[0]
+        hill = hill_log_Ka(x,*params)
+        to_ret = np.sum( -2 * (y-hill) * hill_log_Ka_jacobian(x,*params),axis=1) + \
+            (sum(-2 * (y_zero - params[0])) if y_zero.size > 0 else 0)
         return to_ret
 
     def hessian(self,args,x,y,_):
-        kw = self._get_params(args=args)
-        hill = hill_log_Ka(x=x,**kw)
+        """
+
+        :param args: list of argumnets to fit
+        :param x:  concentraiton
+        :param y:  signal
+        :param _:  additional args
+        :return: hessian
+        """
+        params = _get_params(self.variable_index,self.arg_list,args)
+        hill = hill_log_Ka(x,*params)
         # loss function is ( y - hill) ^2
         # first deriv wrt x_i is
         # -2 * (y-hill) * dhill/dxi (i.e., last term is jacobian)
@@ -213,8 +238,8 @@ class Fitter():
         # -2 * (y-hill) * ddhill/(dxi*dxj) +  -2 * dhill/dxj * dhill/dxi
         # note for x = 0 the hessian is zero everywhere, so the first term like ddhill/(dxi*dxj) would be zero
         # the second term (dhill/dxj * dhill/dxi) is just the outer product of the jacobian
-        jac = hill_log_Ka_jacobian(x=x,**kw)
-        return -2 * (y-hill) * hill_log_Ka_hessian(x=x,**kw) - 2 * np.outer(jac,jac)
+        jac = hill_log_Ka_jacobian(x,*params)
+        return -2 * (y-hill) * hill_log_Ka_hessian(x,*params) - 2 * np.outer(jac,jac)
 
 def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
                 range_n_intial=None,bounds=None):
@@ -252,15 +277,28 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
     return ranges_final
 
 def param_names_order():
+    """
+
+    :return: in-order parameter names
+    """
     return ['min_v', 'max_v', 'log_K_a', 'n']
 
 def _initial_guess(x,y,ranges,coarse_n,fine_n):
+    """
+
+    :param x: x values (concentrations)
+    :param y:  signals
+    :param ranges: list of ranges
+    :param coarse_n: number of coarse grid for brute
+    :param fine_n:  number of fine grid for brute
+    :return: initial dictionary of guesses
+    """
     _, _, range_conc_initial, _ = ranges
     all_names = param_names_order()
     fit_all = Fitter(param_names=all_names, ranges=ranges, n_brute=coarse_n)
     fit_all.fit(x=x, y=y)
-    fixed_params = dict([[k, v] for k, v in fit_all.opt_dict.items()
-                         if k != "log_K_a"])
+    fixed_params = { k:v for k, v in fit_all.opt_dict.items()
+                     if k != "log_K_a"}
     fit_Ka = Fitter(param_names=['log_K_a'], n_brute=fine_n,
                     ranges=[range_conc_initial],
                     fixed_params=fixed_params)
