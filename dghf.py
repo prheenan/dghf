@@ -4,7 +4,7 @@ Hill fitting module TBD
 import warnings
 import numpy as np
 import numba
-from scipy.optimize import brute, minimize
+from scipy.optimize import brute, minimize, fmin_powell
 
 # float vector for numba
 float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
@@ -89,7 +89,7 @@ def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
     """
     ratio = np.exp(log_K_a)/x
     exp = ratio**n
-    denom = (exp + 1)**-1
+    denom = 1/(exp + 1)
     return np.array([
         1 - denom,
         denom,
@@ -145,6 +145,10 @@ class Fitter():
         """
         fixed_params = {} if fixed_params is None else fixed_params
         ranges = [] if ranges is None else ranges
+        # all parameters should be accounted for
+        assert set(fixed_params.keys()) | set(param_names) == set(param_names_order())
+        # fixed parameters and parameters to fit shouldn't overlap
+        assert set(fixed_params.keys()) & set(param_names) == set()
         self.param_names = param_names
         self.ranges = ranges
         self.fixed_params = fixed_params
@@ -168,10 +172,10 @@ class Fitter():
         :param y_at_x_zero: y values where x is zero
         :return: cost associated with these parameters (SSQ)
         """
-        kw = self._get_params(args=args)
-        return hill_cost(x=x,y=y,y_at_x_zero=y_at_x_zero,**kw)
+        return hill_cost(x,y,y_at_x_zero,
+                         **self._get_params(args=args))
 
-    def fit(self,x,y):
+    def fit(self,x,y,**kw):
         """
 
         :param x: x values; concentration
@@ -181,7 +185,7 @@ class Fitter():
         with warnings.catch_warnings(category=RuntimeWarning):
             warnings.simplefilter("ignore")
             opt = brute(func=self, ranges=self.ranges, args=get_fit_args(x,y),
-                        Ns=self.n_brute,full_output=False)
+                        Ns=self.n_brute,full_output=False,**kw)
         self.opt_dict = dict([ [k,v]
                                for k,v in zip(self.param_names,opt)])
         for k,v in self.fixed_params.items():
@@ -268,7 +272,8 @@ def param_names_order():
     """
     return ['min_v', 'max_v', 'log_K_a', 'n']
 
-def _initial_guess(x,y,ranges,coarse_n,fine_n):
+def _initial_guess(x,y,ranges,coarse_n,fine_n,
+                   finish=fmin_powell):
     """
 
     :param x: x values (concentrations)
@@ -276,18 +281,19 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n):
     :param ranges: list of ranges
     :param coarse_n: number of coarse grid for brute
     :param fine_n:  number of fine grid for brute
+    :param finish: what function to finish brute using
     :return: initial dictionary of guesses
     """
     _, _, range_conc_initial, _ = ranges
     all_names = param_names_order()
     fit_all = Fitter(param_names=all_names, ranges=ranges, n_brute=coarse_n)
-    fit_all.fit(x=x, y=y)
+    fit_all.fit(x=x, y=y,finish=finish)
     fixed_params = {k: v for k, v in fit_all.opt_dict.items()
                     if k != "log_K_a"}
     fit_Ka = Fitter(param_names=['log_K_a'], n_brute=fine_n,
                     ranges=[range_conc_initial],
                     fixed_params=fixed_params)
-    fit_Ka.fit(x=x, y=y)
+    fit_Ka.fit(x=x, y=y,finish=finish)
     # use the coarse grid for all the other parameters
     p0 = fit_all.opt_dict
     # overwrite
@@ -296,7 +302,8 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n):
     x0 = [p0[n] for n in all_names]
     return x0
 
-def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
+def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',
+        finish=fmin_powell,**kw):
     """
 
     :param x: concentration , length
@@ -305,6 +312,7 @@ def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
     :param fine_n:  numbr of parameters for potency estimation
     :param kw: bounds on the initial guess
     :param bounds: bounds on the final fit
+    :param fmin: minimizatio function after brute
     :return: dictionary of best fit parameters for hill_log_Ka
     """
     # convert to float64 (numpy specifically requires)
@@ -318,7 +326,8 @@ def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
     x = x[idx_not_nan]
     y = y[idx_not_nan]
     ranges = _get_ranges(x=x,y=y,bounds=bounds,**kw)
-    x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n)
+    x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n,
+                        finish=finish)
     fit_final = Fitter(param_names=param_names_order())
     with warnings.catch_warnings(category=RuntimeWarning):
         warnings.simplefilter("ignore")
