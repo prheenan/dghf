@@ -157,7 +157,7 @@ class Fitter():
         :param args: from fitter
         :return: dictionary of all fit parameters
         """
-        return  dict(zip(self.param_names, args)) | self.fixed_params
+        return { k:v for k,v in zip(self.param_names,args) } | self.fixed_params
 
     def __call__(self,args,x,y,y_at_x_zero):
         """
