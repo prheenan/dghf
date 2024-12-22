@@ -108,7 +108,7 @@ def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     :param n: hill fit coefficient
     :return: hill fit information
     """
-    return min_v + (max_v - min_v ) * ( (np.exp(log_K_a)/x)**n + 1)**-1
+    return min_v + (max_v - min_v )/( (np.exp(log_K_a)/x)**n + 1)
 
 def hill_cost(x,y,y_at_x_zero,**kwargs):
     """
@@ -149,11 +149,7 @@ class Fitter():
         :param args: from fitter
         :return: dictionary of all fit parameters
         """
-        kw = dict([ [k,v] for k,v in zip(self.param_names,args)])
-        for k,v in self.fixed_params.items():
-            assert k not in kw
-            kw[k] = v
-        return kw
+        return { k:v for k,v in zip(self.param_names,args) } | self.fixed_params
 
     def __call__(self,args,x,y,y_at_x_zero):
         """
@@ -272,7 +268,7 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n):
     x0 = [p0[n] for n in all_names]
     return x0
 
-def fit(x,y,coarse_n=10,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
+def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
     """
 
     :param x: concentration , length

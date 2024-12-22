@@ -1,5 +1,6 @@
 # PRH ignores
 *.csv
+*.prof
 iframe_figures/*
 **/*.DS_Store
 *.png
