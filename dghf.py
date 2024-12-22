@@ -3,7 +3,11 @@ Hill fitting module TBD
 """
 import warnings
 import numpy as np
+import numba
 from scipy.optimize import brute, minimize
+
+# float vector for numba
+float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
 
 def get_fit_args(x,y):
     """
@@ -94,7 +98,7 @@ def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
     ])
 
 
-
+@numba.jit(float_vector(numba.float64,numba.float64,numba.float64,numba.float64,float_vector))
 def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     """
     See https://reaction-networks.net/wiki/Hill_kinetics
@@ -110,7 +114,8 @@ def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     """
     return min_v + (max_v - min_v )/( (np.exp(log_K_a)/x)**n + 1)
 
-def hill_cost(x,y,y_at_x_zero,**kwargs):
+@numba.jit(numba.float64(float_vector,float_vector,float_vector,numba.float64,numba.float64,numba.float64,numba.float64))
+def hill_cost(x,y,y_at_x_zero,min_v,max_v,log_K_a,n):
     """
 
     :param x: x value, should not have any zeros
@@ -122,8 +127,8 @@ def hill_cost(x,y,y_at_x_zero,**kwargs):
     # where x is zero, cost is just
     # sum((y_at_x_zero - min_v))*2)
     # since the hill function is just min val at zero concentration
-    return sum((y-hill_log_Ka(x=x,**kwargs))**2) + \
-          (sum(y_at_x_zero-kwargs["min_v"])**2 if y_at_x_zero.size > 0 else 0)
+    return sum((y-hill_log_Ka(x=x,min_v=min_v,max_v=max_v,log_K_a=log_K_a,n=n))**2) + \
+          (sum(y_at_x_zero-min_v)**2 if y_at_x_zero.size > 0 else 0)
 
 
 class Fitter():
@@ -279,6 +284,9 @@ def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',**kw):
     :param bounds: bounds on the final fit
     :return: dictionary of best fit parameters for hill_log_Ka
     """
+    # convert to float64 (numpy specifically requires)
+    x = np.array(x,dtype=np.float64)
+    y = np.array(y,dtype=np.float64)
     idx_not_nan = np.where(~(np.isnan(x) | np.isnan(y)))[0]
     if len(idx_not_nan) <= 2:
         warnings.warn("Need at least 4 non-nan points;"+\
