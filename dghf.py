@@ -114,8 +114,8 @@ def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     """
     return min_v + (max_v - min_v )/( (np.exp(log_K_a)/x)**n + 1)
 
-@numba.jit(numba.float64(float_vector,float_vector,float_vector,numba.float64,numba.float64,numba.float64,numba.float64))
-def hill_cost(x,y,y_at_x_zero,min_v,max_v,log_K_a,n):
+@numba.jit(numba.float64(float_vector,float_vector,float_vector,float_vector))
+def hill_cost(args,x,y,y_at_x_zero):
     """
 
     :param x: x value, should not have any zeros
@@ -124,10 +124,11 @@ def hill_cost(x,y,y_at_x_zero,min_v,max_v,log_K_a,n):
     :param kwargs:  see hill_log_Ka
     :return: sum of squared errors
     """
+    min_v, max_v, log_K_a, n = args
     # where x is zero, cost is just
     # sum((y_at_x_zero - min_v))*2)
     # since the hill function is just min val at zero concentration
-    return sum((y-hill_log_Ka(x=x,min_v=min_v,max_v=max_v,log_K_a=log_K_a,n=n))**2) + \
+    return sum((y-hill_log_Ka(min_v,max_v,log_K_a,n,x))**2) + \
           (sum(y_at_x_zero-min_v)**2 if y_at_x_zero.size > 0 else 0)
 
 
@@ -157,24 +158,12 @@ class Fitter():
         self.fixed = [fixed_params[p] for p in param_names_order() if p in fixed_params]
         if param_names == param_names_order():
             # fitting everything
-            self._f_hill_cost = self._full_hill_cost
+            self._f_hill_cost = hill_cost
         elif param_names == ["log_K_a"]:
             # fitting only logKa
             self._f_hill_cost = self._log_Ka_hill_cost
         else:
             raise ValueError("Not supported")
-
-    def _full_hill_cost(self,args,x,y,y_at_x_zero):
-        """
-        hill cost if fitting all parameters
-
-        :param args: all four parameters to fit
-        :param x: hill_cost
-        :param y: hill_cost
-        :param y_at_x_zero: see hill_cost
-        :return:see hill_cost
-        """
-        return hill_cost(x,y,y_at_x_zero,*args)
 
     def _log_Ka_hill_cost(self,args,x,y,y_at_x_zero):
         """
@@ -185,7 +174,8 @@ class Fitter():
         :param y_at_x_zero:
         :return:
         """
-        return hill_cost(x, y, y_at_x_zero, self.fixed[0], self.fixed[1], args[0], self.fixed[2])
+        return hill_cost(np.array([self.fixed[0], self.fixed[1], args[0], self.fixed[2]]),
+                         x, y, y_at_x_zero)
 
 
     def _get_params(self,args):
