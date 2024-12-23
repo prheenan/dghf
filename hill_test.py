@@ -3,7 +3,8 @@ Testing module for hill fitter
 """
 import unittest
 import warnings
-
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 import numpy as np
 import plotly.graph_objects as go
 import dghf
@@ -160,7 +161,17 @@ class MyTestCase(unittest.TestCase):
                       facet_col_spacing=0.01,range_y=[-100,200])
         fig.show()
         """
-        canvass_download.read_canvass_data(out_dir="./out/test/cache_canvass")
+        df_canvass = \
+            canvass_download.read_canvass_data(out_dir="./out/test/cache_canvass")
+        x_y_dict = {id_v: {'x':df_v["Concentration (M)"].to_numpy(),
+                           'y':df_v["Activity (%)"].to_numpy()}
+                    for id_v, df_v in df_canvass.groupby("Curve ID")}
+        ids = sorted(set(df_canvass["Curve ID"]))
+        x_y = [x_y_dict[i] for i in ids]
+        n_pool = cpu_count() - 1
+        N = len(x_y)
+        with Pool(n_pool) as p:
+            list(tqdm(p.imap(dghf._fit_multiprocess, x_y), total=N))
 
 
 def _debug_plot(x,y,kw_fit):

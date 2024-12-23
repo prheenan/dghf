@@ -316,6 +316,14 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n,
     x0 = np.array([p0[n] for n in all_names],dtype=np.float64)
     return x0
 
+def _fit_multiprocess(kw):
+    """
+
+    :param kw:  see fit
+    :return:  see fit
+    """
+    return fit(**kw)
+
 def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
         finish=fmin_powell,**kw):
     """
