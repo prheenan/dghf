@@ -3,12 +3,17 @@ Testing module for hill fitter
 """
 import unittest
 import warnings
+import logging
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import numpy as np
 import plotly.graph_objects as go
+from scipy.stats import linregress
 import dghf
 from scripts import canvass_download
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def _get_x_y_k(log10_i=-9,log10_f=-4,noise_scale=0,n_zero=0,n_nan=0,n_size=11,**kw):
     """
@@ -146,21 +151,9 @@ class MyTestCase(unittest.TestCase):
 
     def test_canvass(self):
         """
-        Test the canvass data set
-
-        import plotly
-        np.bool8 = np.bool
-        from plotly import express as px
-        df_canvass["[M]"] = df_canvass["Concentration (M)"]
-        df_canvass["%"] = df_canvass["Activity (%)"]
-        df_canvass["ID"] = df_canvass["PUBCHEM_CID"].astype(int)
-        df_canvass["assay"] = df_canvass["Assay"].astype(str)
-        fig = px.line(df_canvass,log_x=True,x="[M]",facet_col_wrap=20,
-                      facet_row_spacing=0.01,
-                      y="%",facet_col="ID",color="assay",height=2000,width=2000,
-                      facet_col_spacing=0.01,range_y=[-100,200])
-        fig.show()
+        Test the canvass data set, makng sure the residuals and R2 look OK
         """
+        self.i_subtest = 0
         df_canvass = \
             canvass_download.read_canvass_data(out_dir="./out/test/cache_canvass")
         x_y_dict = {id_v: {'x':df_v["Concentration (M)"].to_numpy(),
@@ -169,9 +162,39 @@ class MyTestCase(unittest.TestCase):
         ids = sorted(set(df_canvass["Curve ID"]))
         x_y = [x_y_dict[i] for i in ids]
         n_pool = cpu_count() - 1
-        N = len(x_y)
+        n_curves = len(x_y)
         with Pool(n_pool) as p:
-            list(tqdm(p.imap(dghf._fit_multiprocess, x_y), total=N))
+            all_fit_kw = list(tqdm(p.imap(dghf._fit_multiprocess, x_y),
+                                   total=n_curves,
+                                   desc="Fitting CANVASS"))
+        y_pred_arr = []
+        for (x_y_kw), kw in tqdm(zip(x_y, all_fit_kw),desc="Predict CANVASS",
+                                 total=n_curves):
+            y_pred = dghf.hill_log_Ka(x=x_y_kw['x'], **kw)
+            y_pred_arr.append(y_pred)
+        stats = [linregress(x=x_y_kw['x'], y=y_pred_i)
+                 for x_y_kw,y_pred_i in tqdm(zip(x_y,y_pred_arr),
+                                             desc="Regress CANVASS",
+                                             total=n_curves)]
+        median_error = [np.median(np.abs((kw['y'] - y_pred_i)))
+                        for kw, y_pred_i in zip(x_y, y_pred_arr)]
+        all_r2 = [s.rvalue ** 2 for s in stats]
+        error_med, error_90 = np.percentile(median_error,[50,90])
+        r2_med, r2_25 = np.percentile(all_r2,[50,25])
+        logger.info("test_canvass:: R2 median/25th: {:.3f}/{:.3f}".format(r2_med,r2_25))
+        logger.info("test_canvass:: residual median/90th: {:.2f}/{:.2f}".format(error_med,error_90))
+        with self.subTest(self.i_subtest):
+            assert r2_med >= 0.59
+        self.i_subtest += 1
+        with self.subTest(self.i_subtest):
+            assert r2_25 >= 0.15
+        self.i_subtest += 1
+        with self.subTest(self.i_subtest):
+            assert error_med <= 1.3
+        self.i_subtest += 1
+        with self.subTest(self.i_subtest):
+            assert error_90 <= 4.4
+        self.i_subtest += 1
 
 
 def _debug_plot(x,y,kw_fit):

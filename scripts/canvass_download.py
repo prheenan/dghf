@@ -1,6 +1,8 @@
 import time
 import os
 import re
+
+import numpy as np
 import requests
 import pandas
 from tqdm import tqdm
@@ -38,7 +40,8 @@ def process_canvass_df(d):
         merge(df_melted.drop("Concentration",axis="columns"),on="Curve ID")
     return df_to_ret.sort_values(by=["Curve ID","Concentration (M)"],ignore_index=True)
 
-def read_canvass_data(out_dir="./out/cache_canvass",aids=None):
+def read_canvass_data(out_dir="./out/cache_canvass",aids=None,
+                      random_sample=None,random_seed=None):
     """
     The default aids were found as follows
 
@@ -123,6 +126,12 @@ def read_canvass_data(out_dir="./out/cache_canvass",aids=None):
         df_csv.insert(loc=0,column="Assay",value=aid)
         all_dfs.append(df_csv)
     df_cat = pandas.concat(d for d in all_dfs)
+    if random_sample is not None:
+        if random_seed is not None:
+            np.random.seed(random_seed)
+        random_ids = np.random.choice(sorted(set(df_cat["Curve ID"])),
+                                      size=random_sample,replace=False)
+        df_cat = df_cat[df_cat["Curve ID"].isin(random_ids)].copy()
     return df_cat
 
 def run():
