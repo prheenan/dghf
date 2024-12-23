@@ -155,7 +155,8 @@ class Fitter():
         self.fixed_params = fixed_params
         self.n_brute = n_brute
         self.opt_dict = {}
-        self.fixed = [fixed_params[p] for p in param_names_order() if p in fixed_params]
+        self.fixed = np.array([fixed_params[p] if p in fixed_params else np.nan
+                               for p in param_names_order() ],dtype=np.float64)
         if param_names == param_names_order():
             # fitting everything
             self._f_hill_cost = hill_cost
@@ -174,8 +175,8 @@ class Fitter():
         :param y_at_x_zero:
         :return:
         """
-        return hill_cost(np.array([self.fixed[0], self.fixed[1], args[0], self.fixed[2]]),
-                         x, y, y_at_x_zero)
+        self.fixed[2] = args[0]
+        return hill_cost(self.fixed,x, y, y_at_x_zero)
 
 
     def _get_params(self,args):
@@ -312,10 +313,10 @@ def _initial_guess(x,y,ranges,coarse_n,fine_n,
     # overwrite
     p0["log_K_a"] = fit_Ka.opt_dict["log_K_a"]
     # final fitter has no fixed parameters; completely free
-    x0 = [p0[n] for n in all_names]
+    x0 = np.array([p0[n] for n in all_names],dtype=np.float64)
     return x0
 
-def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',
+def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
         finish=fmin_powell,**kw):
     """
 
