@@ -154,6 +154,39 @@ class Fitter():
         self.fixed_params = fixed_params
         self.n_brute = n_brute
         self.opt_dict = {}
+        self.fixed = [fixed_params[p] for p in param_names_order() if p in fixed_params]
+        if param_names == param_names_order():
+            # fitting everything
+            self._f_hill_cost = self._full_hill_cost
+        elif param_names == ["log_K_a"]:
+            # fitting only logKa
+            self._f_hill_cost = self._log_Ka_hill_cost
+        else:
+            raise ValueError("Not supported")
+
+    def _full_hill_cost(self,args,x,y,y_at_x_zero):
+        """
+        hill cost if fitting all parameters
+
+        :param args: all four parameters to fit
+        :param x: hill_cost
+        :param y: hill_cost
+        :param y_at_x_zero: see hill_cost
+        :return:see hill_cost
+        """
+        return hill_cost(x,y,y_at_x_zero,*args)
+
+    def _log_Ka_hill_cost(self,args,x,y,y_at_x_zero):
+        """
+
+        :param args:
+        :param x:
+        :param y:
+        :param y_at_x_zero:
+        :return:
+        """
+        return hill_cost(x, y, y_at_x_zero, self.fixed[0], self.fixed[1], args[0], self.fixed[2])
+
 
     def _get_params(self,args):
         """
@@ -163,17 +196,6 @@ class Fitter():
         """
         return { k:v for k,v in zip(self.param_names,args) } | self.fixed_params
 
-    def __call__(self,args,x,y,y_at_x_zero):
-        """
-
-        :param args: parameters to fit
-        :param x: x values
-        :param y: y values
-        :param y_at_x_zero: y values where x is zero
-        :return: cost associated with these parameters (SSQ)
-        """
-        return hill_cost(x,y,y_at_x_zero,
-                         **self._get_params(args=args))
 
     def fit(self,x,y,**kw):
         """
@@ -184,7 +206,8 @@ class Fitter():
         """
         with warnings.catch_warnings(category=RuntimeWarning):
             warnings.simplefilter("ignore")
-            opt = brute(func=self, ranges=self.ranges, args=get_fit_args(x,y),
+            opt = brute(func=self._f_hill_cost, ranges=self.ranges,
+                        args=get_fit_args(x,y),
                         Ns=self.n_brute,full_output=False,**kw)
         self.opt_dict = dict([ [k,v]
                                for k,v in zip(self.param_names,opt)])
@@ -331,7 +354,7 @@ def fit(x,y,coarse_n=7,fine_n=1000,bounds=None,method='L-BFGS-B',
     fit_final = Fitter(param_names=param_names_order())
     with warnings.catch_warnings(category=RuntimeWarning):
         warnings.simplefilter("ignore")
-        minimize_v = minimize(fun=fit_final, args=get_fit_args(x,y),
+        minimize_v = minimize(fun=fit_final._f_hill_cost, args=get_fit_args(x,y),
                               method=method,
                               jac=fit_final.jacobian, x0=x0,bounds=bounds)
     # fit everything in a free manner
