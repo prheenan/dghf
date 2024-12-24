@@ -245,6 +245,13 @@ class Fitter():
         jac = hill_log_Ka_jacobian(x=x,**kw)
         return -2 * (y-hill) * hill_log_Ka_hessian(x=x,**kw) - 2 * np.outer(jac,jac)
 
+def _harmonize_range(range_v, bounds_v):
+    range_i = []
+    for r1, b1, func in zip(range_v, bounds_v, [max, min]):
+        # if the bounds is inf or None, then stick with the original
+        range_i.append(r1 if b1 is None or np.isinf(b1) else func(r1, b1))
+    return range_i
+
 def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
                 range_n_intial=None,bounds=None):
     """
@@ -264,18 +271,14 @@ def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
     if range_val_initial is None:
         range_val_initial = [min_v - dv / 2, max_v + dv / 2]
     if range_conc_initial is None:
-        range_conc_initial = [conc_min - np.log(3), conc_max + np.log(3)]
+        range_conc_initial = [conc_min, conc_max]
     if range_n_intial is None:
         range_n_intial = [-5, 5]
     ranges = [range_val_initial, range_val_initial, range_conc_initial, range_n_intial]
     if bounds is not None:
         # modify the ranges according to any initial constraints the user gives as bounds
-        ranges_final = []
-        for range_v, bounds_v in zip(ranges, bounds):
-            range_i = []
-            for r1, b1, func in zip(range_v, bounds_v, [max, min]):
-                range_i.append(r1 if b1 is None else func(r1, b1))
-            ranges_final.append(range_i)
+        ranges_final = [_harmonize_range(range_v, bounds_v)
+                        for range_v, bounds_v in zip(ranges, bounds)]
     else:
         ranges_final = ranges
     return ranges_final
@@ -324,7 +327,44 @@ def _fit_multiprocess(kw):
     """
     return fit(**kw)
 
-def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
+def set_bounds_if_inactive(inactive_range,x,y,
+                           bounds_min_v,bounds_max_v,bounds_log_K_a,bounds_n):
+    """
+    Modify the bounds if all of the data are inactive or active
+
+    :param inactive_range: tuple of bounds; points within this bound are considered inactive
+    :param x: concentration
+    :param y: signal
+    :param bounds_min_v: user specified bounds; if more stringent will ovewrite what we find here
+    :param bounds_max_v: user specified bounds; if more stringent will ovewrite what we find here
+    :param bounds_log_K_a: user specified bounds; if more stringent will ovewrite what we find here
+    :param bounds_n: user specified bounds; if more stringent will ovewrite what we find here
+    :return: tuple of updated [bounds_min_v,bounds_max_v,bounds_log_K_a,bounds_n]
+    """
+    if (inactive_range is not None) and any(x > 0):
+        idx_x = np.where(x > 0)[0]
+        x_non_zero = x[idx_x]
+        min_r, max_r = min(inactive_range), max(inactive_range)
+        point_inactive = (y <= max_r) | (y >= min_r)
+        triggered = False
+        if all(point_inactive | np.isnan(y)):
+            # then the log Ka must be set to the maximum
+            bounds_log_K_a = [np.log(max(x_non_zero)),np.log(max(x_non_zero))]
+            triggered = True
+        elif (not any(point_inactive)) and any(x > 0):
+            # no point is inactive; bounds must be set to minimum
+            bounds_log_K_a = [np.log(min(x_non_zero)),np.log(min(x_non_zero))]
+            triggered = True
+        if triggered:
+            dy = max(y) - min(y)
+            bounds_new = [min(y) - dy, max(y) + dy]
+            bounds_min_v = _harmonize_range(bounds_new, bounds_min_v)
+            bounds_max_v = _harmonize_range(bounds_new, bounds_max_v)
+    return [bounds_min_v,bounds_max_v,bounds_log_K_a,bounds_n]
+
+def fit(x,y,coarse_n=7,fine_n=100,bounds_min_v = None,
+        bounds_max_v=None,bounds_log_K_a=None,
+        bounds_n=None,method='L-BFGS-B',inactive_range=None,
         finish=fmin_powell,**kw):
     """
 
@@ -333,10 +373,20 @@ def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
     :param coarse_n:  number of parameters for coare parameter estimation
     :param fine_n:  numbr of parameters for potency estimation
     :param kw: bounds on the initial guess
-    :param bounds: bounds on the final fit
+    :param bounds_minv: boundsfor potency, unbounded is [None,None]
+    :param bounds_maxv: bounds for potency, unbounded is [None,None]
+    :param bounds_log_Ka: bounds for potency, unbounded is [None,None]
+    :param bounds_n: bounds for hill coefficient, unbounded is [None,None]
     :param fmin: minimizatio function after brute
+    :param method: method for optimization function
+    :param inactive_range: inactive range; for example [-inf,50] would mean
+    points are considered inactive if they are between -inf and 50
     :return: dictionary of best fit parameters for hill_log_Ka
     """
+    bounds_min_v = [None, None] if bounds_min_v is None else bounds_min_v
+    bounds_max_v = [None, None] if bounds_max_v is None else bounds_max_v
+    bounds_log_K_a = [None, None] if bounds_log_K_a is None else bounds_log_K_a
+    bounds_n = [None, None] if bounds_n is None else bounds_n
     # convert to float64 (numpy specifically requires)
     x = np.array(x,dtype=np.float64)
     y = np.array(y,dtype=np.float64)
@@ -347,6 +397,8 @@ def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
         return {"min_v":np.nan, "max_v":np.nan, "log_K_a":np.nan, "n":np.nan}
     x = x[idx_not_nan]
     y = y[idx_not_nan]
+    bounds = set_bounds_if_inactive(inactive_range,x,y,bounds_min_v,
+                                    bounds_max_v,bounds_log_K_a,bounds_n)
     ranges = _get_ranges(x=x,y=y,bounds=bounds,**kw)
     x0 = _initial_guess(x=x,y=y,ranges=ranges,coarse_n=coarse_n,fine_n=fine_n,
                         finish=finish)
@@ -357,5 +409,5 @@ def fit(x,y,coarse_n=7,fine_n=100,bounds=None,method='L-BFGS-B',
                               method=method,
                               jac=fit_final.jacobian, x0=x0,bounds=bounds)
     # fit everything in a free manner
-    kw_fit = { n:x_i for n, x_i in zip(fit_final.param_names, minimize_v.x)}
+    kw_fit = dict(zip(fit_final.param_names, minimize_v.x))
     return kw_fit

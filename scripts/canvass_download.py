@@ -1,3 +1,6 @@
+"""
+Module to help download all the canvass data
+"""
 import time
 import os
 import re
@@ -21,8 +24,8 @@ def process_canvass_df(d):
     all_matches = [re.match(r"Activity at ([\.\d+]+) uM",c)
                    for c in cols_activity]
     assert all(m is not None for m in all_matches)
-    activity_to_concentration_M = dict([ [c,float(m.group(1))/1e6]
-                                         for c,m in zip(cols_activity,all_matches)])
+    activity_to_concentration_M = { c:float(m.group(1))/1e6
+                                    for c,m in zip(cols_activity,all_matches)}
     cols_meta = ['PUBCHEM_ACTIVITY_OUTCOME', 'Curve_Description',
                  'Fit_LogAC50', 'Fit_HillSlope', 'Fit_R2']
     cols_id = ['PUBCHEM_ACTIVITY_URL','PUBCHEM_SID',
@@ -113,8 +116,9 @@ def read_canvass_data(out_dir="./out/cache_canvass",aids=None,
     for aid in tqdm(aids):
         file_v = os.path.join(out_dir,f"{aid}.csv") if out_dir is not None else None
         if file_v is not None and (not os.path.isfile(file_v)):
-            return_v = requests.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/assay/aid/{aid}/CSV",
-                                    timeout=60)
+            return_v = requests.\
+                get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/assay/aid/{aid}/CSV",
+                    timeout=60)
             assert return_v.ok
             if file_v is not None:
                 # then save it out

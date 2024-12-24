@@ -116,9 +116,8 @@ class MyTestCase(unittest.TestCase):
         x_y_k_err = self.simulated_data
         # only specify final bounds as :
         # final hill coefficient, which should be positive
-        bounds = [[None,None],[None,None],[None,None],[0,np.inf]]
         for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
-            kw_fit = dghf.fit(x,y,bounds=bounds)
+            kw_fit = dghf.fit(x,y,bounds_n=[0,np.inf])
             self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                   **kw_err)
 
@@ -128,12 +127,11 @@ class MyTestCase(unittest.TestCase):
         """
         self.i_subtest = 0
         x_y_k_err = self.simulated_data
-        bounds = [[None,None],[None,None],[None,None],[0,np.inf]]
         for (x,y,_),__ in x_y_k_err[::-1]:
             with self.subTest(i=self.i_subtest):
                 with warnings.catch_warnings(category=RuntimeWarning):
                     warnings.simplefilter("error",category=RuntimeWarning)
-                    dghf.fit(x,y,bounds=bounds,coarse_n=2)
+                    dghf.fit(x,y,bounds_n=[0,np.inf],coarse_n=2)
             self.i_subtest += 1
 
     def test_bounds(self):
@@ -142,10 +140,13 @@ class MyTestCase(unittest.TestCase):
         """
         x_y_k_err = self.simulated_data
         for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
-            for i,name in enumerate(dghf.param_names_order()):
-                bounds = [[None, None], [None, None], [None, None], [0, np.inf]]
-                bounds[i] = [kw_expected[name],kw_expected[name]]
-                kw_fit = dghf.fit(x,y,bounds=bounds)
+            for name in dghf.param_names_order():
+                bounds = { 'bounds_min_v':[None, None],
+                           'bounds_max_v':[None, None],
+                           'bounds_log_K_a':[None, None],
+                           'bounds_n':[0, np.inf]}
+                bounds[f'bounds_{name}'] = [kw_expected[name],kw_expected[name]]
+                kw_fit = dghf.fit(x,y,**bounds)
                 self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                       **kw_err)
 
@@ -184,16 +185,16 @@ class MyTestCase(unittest.TestCase):
         logger.info("test_canvass:: R2 median/25th: {:.3f}/{:.3f}".format(r2_med,r2_25))
         logger.info("test_canvass:: residual median/90th: {:.2f}/{:.2f}".format(error_med,error_90))
         with self.subTest(self.i_subtest):
-            assert r2_med >= 0.59
+            assert r2_med >= 0.63
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
-            assert r2_25 >= 0.15
+            assert r2_25 >= 0.145
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
             assert error_med <= 1.3
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
-            assert error_90 <= 4.4
+            assert error_90 <= 4.3
         self.i_subtest += 1
 
 
