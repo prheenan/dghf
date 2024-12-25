@@ -11,11 +11,12 @@ import pandas
 from tqdm import tqdm
 
 
-def process_canvass_df(d):
+def process_canvass_df(d,aid=""):
     """
 
     :param d: pubchem data frame given by
     f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/assay/aid/{aid}/CSV?sid={csv}"
+    :param aid: assay id
     :return: processed data frame with the columns we care about
     """
     df_skiprow = d.iloc[1:, :].copy()
@@ -29,9 +30,9 @@ def process_canvass_df(d):
     cols_meta = ['PUBCHEM_ACTIVITY_OUTCOME', 'Curve_Description',
                  'Fit_LogAC50', 'Fit_HillSlope', 'Fit_R2']
     cols_id = ['PUBCHEM_ACTIVITY_URL','PUBCHEM_SID',
-               'PUBCHEM_CID', 'PUBCHEM_RESULT_TAG']
+               'PUBCHEM_RESULT_TAG','PUBCHEM_CID']
     df_skiprow["Curve ID"] = ["___".join(str(row[c]) for c in cols_id
-                                         if str(row[c]) != "nan")
+                                         if str(row[c]) != "nan") + f"___{aid}"
                               for i,row in df_skiprow.iterrows()]
     df_melted = pandas.melt(df_skiprow[ ["Curve ID"] + cols_activity],
                             id_vars="Curve ID",
@@ -126,7 +127,7 @@ def read_canvass_data(out_dir="./out/cache_canvass",aids=None,
                     f.write(return_v.text)
             time.sleep(time_sleep)
         # file exists
-        df_csv = process_canvass_df(pandas.read_csv(file_v))
+        df_csv = process_canvass_df(pandas.read_csv(file_v),aid)
         df_csv.insert(loc=0,column="Assay",value=aid)
         all_dfs.append(df_csv)
     df_cat = pandas.concat(d for d in all_dfs)

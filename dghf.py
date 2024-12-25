@@ -345,7 +345,7 @@ def set_bounds_if_inactive(inactive_range,x,y,
         idx_x = np.where(x > 0)[0]
         x_non_zero = x[idx_x]
         min_r, max_r = min(inactive_range), max(inactive_range)
-        point_inactive = (y <= max_r) | (y >= min_r)
+        point_inactive = (y <= max_r) & (y >= min_r)
         triggered = False
         if all(point_inactive | np.isnan(y)):
             # then the log Ka must be set to the maximum

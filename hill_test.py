@@ -44,8 +44,13 @@ class MyTestCase(unittest.TestCase):
     def __init__(self,*args,**kw):
         super().__init__(*args,**kw)
         self.i_subtest = 0
+
+    @classmethod
+    def setUpClass(cls):
         np.random.seed(42)
-        self.simulated_data = self._simulated_data()
+        cls.simulated_data = simulated_data()
+        cls.df_canvass = canvass_download.\
+            read_canvass_data(out_dir="./out/test/cache_canvass")
 
     def _assert_close_kw(self,kw_found,kw_expected,atol=0,rtol=1e-6,
                          atol_signal=None,rtol_signal=None):
@@ -74,46 +79,13 @@ class MyTestCase(unittest.TestCase):
                                            rtol=rtol_i)
                 self.i_subtest += 1
 
-    def _simulated_data(self):
-        """
-
-        :return: list of tuples, where each tuple is like
-
-        ( (x values, y values, expected parameters), dictionary of error terms
-        for  _assert_close_kw)
-        """
-        kw_fit_1 = {'min_v':10, 'max_v':100, 'log_K_a':np.log(1e-6),'n':1}
-        x_y_k_err = [
-            [_get_x_y_k(-7, -4, **kw_fit_1),{'atol':1e-4}],
-            [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1),
-             {'rtol':0.15,'atol_signal':9}],
-            [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,**kw_fit_1),
-             {'rtol':0.15,'atol_signal':9}],
-            [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,n_nan=2, **kw_fit_1),
-             {'rtol':0.5, 'atol_signal':9}],
-            # oops all nans
-            [ [[np.nan] * 11, [np.nan]*11,
-               dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
-            # small number
-            [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), {"atol":1e-4}],
-            # try only going to 10 uM (-5)
-            [_get_x_y_k(-7, -5, noise_scale=5, **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)),
-             {'rtol':0.16,'atol_signal':9}],
-            # try only 8 points
-            [_get_x_y_k(-7, -4, noise_scale=5,n_size=8,
-                        **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6), n=1)),
-             {'rtol':0.23, 'atol_signal':26}],
-
-        ]
-        return x_y_k_err
-
-    def test_prepared_data(self):
+    def test_00_prepared_data(self):
         """
 
         :return: nothing, test prepared data
         """
         self.i_subtest = 0
-        x_y_k_err = self.simulated_data
+        x_y_k_err = MyTestCase.simulated_data
         # only specify final bounds as :
         # final hill coefficient, which should be positive
         for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
@@ -121,12 +93,12 @@ class MyTestCase(unittest.TestCase):
             self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                   **kw_err)
 
-    def test_overflow_inducing_runs(self):
+    def test_01_overflow_inducing_runs(self):
         """
         test runs which should induced overflow
         """
         self.i_subtest = 0
-        x_y_k_err = self.simulated_data
+        x_y_k_err = MyTestCase.simulated_data
         for (x,y,_),__ in x_y_k_err[::-1]:
             with self.subTest(i=self.i_subtest):
                 with warnings.catch_warnings(category=RuntimeWarning):
@@ -134,11 +106,11 @@ class MyTestCase(unittest.TestCase):
                     dghf.fit(x,y,bounds_n=[0,np.inf],coarse_n=2)
             self.i_subtest += 1
 
-    def test_bounds(self):
+    def test_02_bounds(self):
         """
         Tested bounded fit problems
         """
-        x_y_k_err = self.simulated_data
+        x_y_k_err = MyTestCase.simulated_data
         for (x,y,kw_expected),kw_err in x_y_k_err[::-1]:
             for name in dghf.param_names_order():
                 bounds = { 'bounds_min_v':[None, None],
@@ -150,17 +122,66 @@ class MyTestCase(unittest.TestCase):
                 self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                       **kw_err)
 
-    def test_canvass(self):
+    def test_03_canvass_exemplars(self):
+        """
+        Test exemplars chosen from the canvass set to be very high quality
+        """
+        subset_cid_assay = [
+            [ 21123718,1347368],
+            [ 71452522,1347364],
+            [ 638024,1347373],
+            [ 44543726,1347391 ],
+            [ 11169934,1347365],
+        ]
+        dict_cid_assay = { (cid,a):df_i for (cid,a),df_i in \
+                           MyTestCase.df_canvass.groupby(["PUBCHEM_CID","Assay"])}
+        self.i_subtest = 0
+        for cid,assay in subset_cid_assay:
+            data_subset = dict_cid_assay[float(cid),int(assay)]
+            x,y = (data_subset["Concentration (M)"].to_numpy(),
+                   data_subset["Activity (%)"].to_numpy())
+            kw_for_fit = dict(x=x, y=y, bounds_n=[0,np.inf])
+            kw_fit_with_range = \
+                dghf.fit(inactive_range=[-50,50],**kw_for_fit)
+            kw_for_fit = dict(x=x, y=y, bounds_n=[0, np.inf])
+            # fit with and without inactive range;
+            kw_fit_with_range = dghf.fit(inactive_range=[-50, 50], **kw_for_fit)
+            kw_fit_without_range = dghf.fit(**kw_for_fit)
+            keys = sorted(set(kw_fit_with_range.keys()))
+            # fits shouldn't change much
+            with self.subTest(self.i_subtest):
+                np.testing.assert_allclose([kw_fit_with_range[k] for k in keys],
+                                           [kw_fit_without_range[k] for k in
+                                            keys], rtol=0.05)
+            self.i_subtest += 1
+            # fits were chosen such that they should be very high quality
+            for kw in [kw_fit_with_range, kw_fit_without_range]:
+                y_pred_i = dghf.hill_log_Ka(x=x, **kw)
+                stats = linregress(x=y, y=y_pred_i)
+                r2 =  stats.rvalue**2
+                median_resid = np.median(np.abs(y_pred_i - y))
+                logger.info( "test_canvass_exemplars:: resid/r2/slope: {:.1f}/{:.3f}/{:.3f}".\
+                             format(median_resid,r2,stats.slope))
+                with self.subTest(self.i_subtest):
+                    assert median_resid < 3., median_resid
+                self.i_subtest += 1
+                with self.subTest(self.i_subtest):
+                    assert r2 > 0.98 , r2
+                self.i_subtest += 1
+                with self.subTest(self.i_subtest):
+                    assert stats.slope > 0.98 , stats.slope
+                self.i_subtest += 1
+
+
+    def test_04_canvass(self):
         """
         Test the canvass data set, makng sure the residuals and R2 look OK
         """
         self.i_subtest = 0
-        df_canvass = \
-            canvass_download.read_canvass_data(out_dir="./out/test/cache_canvass")
         x_y_dict = {id_v: {'x':df_v["Concentration (M)"].to_numpy(),
                            'y':df_v["Activity (%)"].to_numpy()}
-                    for id_v, df_v in df_canvass.groupby("Curve ID")}
-        ids = sorted(set(df_canvass["Curve ID"]))
+                    for id_v, df_v in MyTestCase.df_canvass.groupby("Curve ID")}
+        ids = sorted(set(MyTestCase.df_canvass["Curve ID"]))
         x_y = [x_y_dict[i] for i in ids]
         n_pool = cpu_count() - 1
         n_curves = len(x_y)
@@ -173,30 +194,46 @@ class MyTestCase(unittest.TestCase):
                                  total=n_curves):
             y_pred = dghf.hill_log_Ka(x=x_y_kw['x'], **kw)
             y_pred_arr.append(y_pred)
-        stats = [linregress(x=x_y_kw['x'], y=y_pred_i)
+        stats = [ _safe_regress(x=x_y_kw['y'], y=y_pred_i)
                  for x_y_kw,y_pred_i in tqdm(zip(x_y,y_pred_arr),
                                              desc="Regress CANVASS",
                                              total=n_curves)]
         median_error = [np.median(np.abs((kw['y'] - y_pred_i)))
                         for kw, y_pred_i in zip(x_y, y_pred_arr)]
-        all_r2 = [s.rvalue ** 2 for s in stats]
-        error_med, error_90 = np.percentile(median_error,[50,90])
-        r2_med, r2_25 = np.percentile(all_r2,[50,25])
+        all_r2 = [s.rvalue ** 2 if s is not None else np.nan for s in stats ]
+        error_med, error_90 = np.nanpercentile(median_error,[50,90])
+        r2_med, r2_25 = np.nanpercentile(all_r2,[50,25])
+        fraction_nan = sum(np.isnan(all_r2)) / len(all_r2)
         logger.info("test_canvass:: R2 median/25th: {:.3f}/{:.3f}".format(r2_med,r2_25))
         logger.info("test_canvass:: residual median/90th: {:.2f}/{:.2f}".format(error_med,error_90))
+        logger.info("test_canvass:: fraction nan {:.3f}".format(fraction_nan))
         with self.subTest(self.i_subtest):
-            assert r2_med >= 0.63
+            assert fraction_nan < 0.01, fraction_nan
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
-            assert r2_25 >= 0.145
+            assert r2_med >= 0.58, r2_med
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
-            assert error_med <= 1.3
+            assert r2_25 >= 0.32, r2_25
+        self.i_subtest += 1
+        with self.subTest(self.i_subtest):
+            assert error_med <= 1.3, error_med
         self.i_subtest += 1
         with self.subTest(self.i_subtest):
             assert error_90 <= 4.3
         self.i_subtest += 1
 
+def _safe_regress(x,y):
+    """
+
+    :param x: x value
+    :param y: y value
+    :return: linregress object, unless error then None
+    """
+    try:
+        return linregress(x=x,y=y)
+    except ValueError:
+        return None
 
 def _debug_plot(x,y,kw_fit):
     """
@@ -216,6 +253,38 @@ def _debug_plot(x,y,kw_fit):
     fig.update_layout(xaxis_type="log")
     fig.show()
 
+def simulated_data():
+    """
+
+    :return: list of tuples, where each tuple is like
+
+    ( (x values, y values, expected parameters), dictionary of error terms
+    for  _assert_close_kw)
+    """
+    kw_fit_1 = {'min_v':10, 'max_v':100, 'log_K_a':np.log(1e-6),'n':1}
+    x_y_k_err = [
+        [_get_x_y_k(-7, -4, **kw_fit_1),{'atol':1e-4}],
+        [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1),
+         {'rtol':0.15,'atol_signal':9}],
+        [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,**kw_fit_1),
+         {'rtol':0.15,'atol_signal':9}],
+        [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,n_nan=2, **kw_fit_1),
+         {'rtol':0.5, 'atol_signal':9}],
+        # oops all nans
+        [ [[np.nan] * 11, [np.nan]*11,
+           dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
+        # small number
+        [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), {"atol":1e-4}],
+        # try only going to 10 uM (-5)
+        [_get_x_y_k(-7, -5, noise_scale=5, **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)),
+         {'rtol':0.16,'atol_signal':9}],
+        # try only 8 points
+        [_get_x_y_k(-7, -4, noise_scale=5,n_size=8,
+                    **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6), n=1)),
+         {'rtol':0.23, 'atol_signal':26}],
+
+    ]
+    return x_y_k_err
 
 
 
