@@ -44,7 +44,7 @@ def process_canvass_df(d,aid=""):
         merge(df_melted.drop("Concentration",axis="columns"),on="Curve ID")
     return df_to_ret.sort_values(by=["Curve ID","Concentration (M)"],ignore_index=True)
 
-def read_canvass_data(out_dir="./out/cache_canvass",aids=None,
+def read_canvass_data(out_dir="./out/test/cache_canvass",aids=None,
                       random_sample=None,random_seed=None):
     """
     The default aids were found as follows
@@ -138,6 +138,47 @@ def read_canvass_data(out_dir="./out/cache_canvass",aids=None,
                                       size=random_sample,replace=False)
         df_cat = df_cat[df_cat["Curve ID"].isin(random_ids)].copy()
     return df_cat
+
+def read_xy_from_assay_cid(df,cid_assay=None):
+    """
+
+    :param df:  data frame like from read_canvass_data
+    :param cid_assay: list, length N, of cids/assay pairs, like exemplar_cid_assays
+    :return: list, length N, each element is X and Y
+    """
+    if cid_assay is None:
+        cid_assay = exemplar_cid_assays()
+    dict_cid_assay = {(cid, a): [df_i["Concentration (M)"].to_numpy(),
+                                 df_i["Activity (%)"].to_numpy()]
+                      for (cid, a), df_i in df.groupby(["PUBCHEM_CID", "Assay"])}
+    data_subset = [dict_cid_assay[float(c), int(a)]
+                   for c,a in cid_assay]
+    return data_subset
+
+def exemplar_cid_assays():
+    """
+
+    :return: list, each elemnet tuple of (compound id, assay)
+    """
+    return [
+        [21123718, 1347368],
+        [71452522, 1347364],
+        [638024, 1347373],
+        [44543726, 1347391],
+        [11169934, 1347365],
+        [134827994, 1347393],
+        [134827991, 1347351],
+        [134828011, 1347391],
+        [135419370, 1347350]
+    ]
+
+def demo_x_y_data(df=None):
+    if df is None:
+        df = read_canvass_data()
+    cid_assay = exemplar_cid_assays()
+    x_y = read_xy_from_assay_cid(df, cid_assay=cid_assay)
+    return x_y
+
 
 def run():
     """

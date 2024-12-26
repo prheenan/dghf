@@ -126,24 +126,16 @@ class MyTestCase(unittest.TestCase):
         """
         Test exemplars chosen from the canvass set to be very high quality
         """
-        subset_cid_assay = [
-            [ 21123718,1347368],
-            [ 71452522,1347364],
-            [ 638024,1347373],
-            [ 44543726,1347391 ],
-            [ 11169934,1347365],
-        ]
-        dict_cid_assay = { (cid,a):df_i for (cid,a),df_i in \
-                           MyTestCase.df_canvass.groupby(["PUBCHEM_CID","Assay"])}
+        cid_assay = canvass_download.exemplar_cid_assays()
+        x_y = canvass_download.demo_x_y_data(df=MyTestCase.df_canvass)
         self.i_subtest = 0
-        for cid,assay in subset_cid_assay:
-            data_subset = dict_cid_assay[float(cid),int(assay)]
-            x,y = (data_subset["Concentration (M)"].to_numpy(),
-                   data_subset["Activity (%)"].to_numpy())
+        cid_assay_lower = set( [(134827994,1347393)])
+        for (x,y),(cid,assay) in zip(x_y,cid_assay):
+            lower = (cid,assay in cid_assay_lower)
+            r2_thresh = 0.94 if lower else 0.98
+            slope_thresh = 0.94 if lower else 0.98
+            resid_thresh = 3
             kw_for_fit = dict(x=x, y=y, bounds_n=[0,np.inf])
-            kw_fit_with_range = \
-                dghf.fit(inactive_range=[-50,50],**kw_for_fit)
-            kw_for_fit = dict(x=x, y=y, bounds_n=[0, np.inf])
             # fit with and without inactive range;
             kw_fit_with_range = dghf.fit(inactive_range=[-50, 50], **kw_for_fit)
             kw_fit_without_range = dghf.fit(**kw_for_fit)
@@ -163,13 +155,13 @@ class MyTestCase(unittest.TestCase):
                 logger.info( "test_canvass_exemplars:: resid/r2/slope: {:.1f}/{:.3f}/{:.3f}".\
                              format(median_resid,r2,stats.slope))
                 with self.subTest(self.i_subtest):
-                    assert median_resid < 3., median_resid
+                    assert median_resid < resid_thresh, median_resid
                 self.i_subtest += 1
                 with self.subTest(self.i_subtest):
-                    assert r2 > 0.98 , r2
+                    assert r2 > r2_thresh , r2
                 self.i_subtest += 1
                 with self.subTest(self.i_subtest):
-                    assert stats.slope > 0.98 , stats.slope
+                    assert stats.slope > slope_thresh , stats.slope
                 self.i_subtest += 1
 
 

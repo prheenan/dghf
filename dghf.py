@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import numba
 from scipy.optimize import brute, minimize, fmin_powell
-
+from matplotlib import pyplot as plt
 # float vector for numba
 float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
 
@@ -411,3 +411,50 @@ def fit(x,y,coarse_n=7,fine_n=100,bounds_min_v = None,
     # fit everything in a free manner
     kw_fit = dict(zip(fit_final.param_names, minimize_v.x))
     return kw_fit
+
+
+def gallery_plot(x_y,all_fit_kw,n_rows=None,n_cols=None,
+                 ids_plot=None,figsize=(5,4)):
+    """
+
+    :param x_y: list of length N; each element tupe of concentration and y values
+    :param all_fit_kw: list of length N; each element is output of fit function
+    :param n_rows: number of rows; defaults to sqrt of N
+    :param n_cols: number of cols; defaults to sqrt of N
+    :param ids_plot: to use on each plot title
+    :param figsize: size of figure to use
+    :return:  matpotlib figure
+    """
+    show_title_debug = ids_plot is not None
+    if n_rows is None:
+        n_rows = int(np.ceil(np.sqrt(len(all_fit_kw))))
+        n_cols = n_rows
+    prop_cycle = plt.rcParams['axes.prop_cycle']
+    # the olive color isn't readable
+    colors = [c for i,c in enumerate(prop_cycle.by_key()['color'])
+              if i != 8]
+    plt.close("all")
+    plt.style.use("bmh")
+    fig, axs = plt.subplots(n_rows,n_cols,figsize=figsize,
+                            sharex=True,sharey=True,dpi=100)
+    i_plot = 0
+    for row in axs:
+        for col in row:
+            x,y  = x_y[i_plot]
+            kw = all_fit_kw[i_plot]
+            x_pred = np.logspace(np.log10(min(x)),np.log10(max(x)),
+                                 base=10,endpoint=True)
+            y_pred = hill_log_Ka(x=x_pred, **kw)
+            col.semilogx(x,y,'o',markersize=4,markerfacecolor='w',
+                         color=colors[i_plot % len(colors)])
+            col.semilogx(x_pred,y_pred,'--',color='k',linewidth=1.5)
+            if ids_plot is not None and show_title_debug:
+                col.set_title(ids_plot[i_plot],fontsize=6,y=0.7,x=0.2)
+            i_plot += 1
+    for ax in axs.flat:
+        ax.set(xlabel='Cmpd [M]', ylabel='Activity\n(%)')
+    for ax in axs.flat:
+        ax.label_outer()
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=0.15, hspace=0.15)
+    return fig
