@@ -109,16 +109,19 @@ def error_values(kw_fit_arr, x_y_kw, bounds_n=None, time_repeats=0):
     """
     errors = []
     times = []
-    for kw_params in kw_fit_arr:
+    for j,kw_params in enumerate(kw_fit_arr):
         for i, (x, y, kw) in enumerate(x_y_kw):
-            _f_callable = functools.partial(dghf.fit,x=x, y=y, bounds_n=bounds_n, **kw_params)
+            _f_callable = functools.partial(dghf.fit,x=x, y=y,
+                                            bounds_n=bounds_n, **kw_params)
             kw_fit = _f_callable()
             if time_repeats > 0:
                 time_avg = timeit.timeit(_f_callable, number=time_repeats)
             else:
                 time_avg = np.nan
             times.append(
-                {"Parameter set": i, "Time (s)": time_avg, **kw_params})
+                {"Hyperparameter set":j,"Parameter set": i,
+                 "Time/run (s/run)":time_avg/time_repeats,
+                 "Time (s)": time_avg, **kw_params})
             for k, v in kw_fit.items():
                 v_expected = kw[k]
                 v_calculate = v

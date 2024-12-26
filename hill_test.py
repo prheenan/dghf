@@ -3,6 +3,7 @@ Testing module for hill fitter
 """
 import unittest
 import warnings
+import platform
 import logging
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
@@ -11,6 +12,7 @@ import plotly.graph_objects as go
 from scipy.stats import linregress
 import dghf
 from scripts import canvass_download
+from scripts import prh_profile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -106,7 +108,7 @@ class MyTestCase(unittest.TestCase):
                     dghf.fit(x,y,bounds_n=[0,np.inf],coarse_n=2)
             self.i_subtest += 1
 
-    def test_02_bounds(self):
+    def test_02a_simulated_bounds(self):
         """
         Tested bounded fit problems
         """
@@ -121,6 +123,50 @@ class MyTestCase(unittest.TestCase):
                 kw_fit = dghf.fit(x,y,**bounds)
                 self._assert_close_kw(kw_found=kw_fit, kw_expected=kw_expected,
                                       **kw_err)
+                # if I add in the expected bounds, should stll be OK
+                bounds_oracle = { 'bounds_min_v':[-20, 20],
+                                  'bounds_max_v':[80, 120],
+                                  'bounds_log_K_a':[kw_expected["log_K_a"]-np.log(10),
+                                                    kw_expected["log_K_a"]+np.log(10)],
+                                  'bounds_n':[kw_expected["n"]*0.8, kw_expected["n"]*1.2]}
+                kw_fit_oracle = dghf.fit(x,y,**bounds_oracle)
+                self._assert_close_kw(kw_found=kw_fit_oracle, kw_expected=kw_expected,
+                                      **kw_err)
+                # more realistic bounds should also be OK
+                x_nz = np.array(x)[np.where(np.array(x) >0)[0]]
+                if x_nz.size > 0:
+                    bounds_realistic = { 'bounds_min_v':[-20, 20],
+                                         'bounds_max_v':[80, 120],
+                                         'bounds_log_K_a':[np.log(min(x_nz)),
+                                                           np.log(max(x_nz))],
+                                         'bounds_n':[0, 5]}
+                    kw_fit_realistic = dghf.fit(x,y,**bounds_realistic)
+                    self._assert_close_kw(kw_found=kw_fit_realistic,
+                                          kw_expected=kw_expected,
+                                          **kw_err)
+
+    def test_02a_inactivity(self):
+        """
+        test that inactive dataframes are marked as such
+        """
+        # get a bunch of inactive data
+        x_y = canvass_download.\
+            read_xy_from_assay_cid(df=MyTestCase.df_canvass,
+                                   cid_assay=canvass_download.inactive_cid_assays())
+        for x,y in x_y:
+            kw_fit_with_range = dghf.fit(inactive_range=[-50, 50],x=x,y=y)
+            min_y, max_y = min(y), max(y)
+            dy = max_y - min_y
+            with self.subTest(i=self.i_subtest):
+                assert kw_fit_with_range['min_v'] >= min_y - dy
+            self.i_subtest += 1
+            with self.subTest(i=self.i_subtest):
+                assert kw_fit_with_range['max_v'] <= max_y + dy
+            self.i_subtest += 1
+            with self.subTest(i=self.i_subtest):
+                assert kw_fit_with_range["log_K_a"] == np.log(max(x[np.where(x > 0)[0]]))
+            self.i_subtest += 1
+
 
     def test_03_canvass_exemplars(self):
         """
@@ -164,8 +210,38 @@ class MyTestCase(unittest.TestCase):
                     assert stats.slope > slope_thresh , stats.slope
                 self.i_subtest += 1
 
+    def test_04_timing(self):
+        """
+        On my local computer only, check the timing
+        """
+        self.i_subtest = 0
+        comp = platform.uname().node.split(".")[0]
+        logger.info("test_04_timing:: {:s}".format(comp))
+        if comp != 'Patricks-MBP-3':
+            return
+        n_repeats = 10
+        x_y_kw = [ (x,y,kw_expected)
+                   for (x,y,kw_expected),kw_err in MyTestCase.simulated_data
+                   if not all(np.isnan(sorted(kw_expected.values())))]
+        _, df_time_n = prh_profile.\
+            error_values(kw_fit_arr=[dict() for _ in range(n_repeats)],
+                         bounds_n=[0, np.inf], time_repeats=10,
+                         x_y_kw=x_y_kw)
+        median_per_run = df_time_n.groupby("Parameter set").\
+            median()["Time/run (s/run)"]
+        median_of_median = np.median(median_per_run)
+        max_of_median = np.max(median_per_run)
+        logger.info("test_04_timing:: median-median/max-median: {:.3f}s/{:.3f}s".\
+            format(median_of_median, max_of_median))
+        with self.subTest(i=self.i_subtest):
+            assert median_of_median < 0.03, median_of_median
+        self.i_subtest += 1
+        with self.subTest(i=self.i_subtest):
+            assert max_of_median < 0.035, max_of_median
+        self.i_subtest += 1
 
-    def test_04_canvass(self):
+
+    def test_99_canvass(self):
         """
         Test the canvass data set, makng sure the residuals and R2 look OK
         """
@@ -196,9 +272,9 @@ class MyTestCase(unittest.TestCase):
         error_med, error_90 = np.nanpercentile(median_error,[50,90])
         r2_med, r2_25 = np.nanpercentile(all_r2,[50,25])
         fraction_nan = sum(np.isnan(all_r2)) / len(all_r2)
-        logger.info("test_canvass:: R2 median/25th: {:.3f}/{:.3f}".format(r2_med,r2_25))
-        logger.info("test_canvass:: residual median/90th: {:.2f}/{:.2f}".format(error_med,error_90))
-        logger.info("test_canvass:: fraction nan {:.3f}".format(fraction_nan))
+        logger.info("test_99_canvass:: R2 median/25th: {:.3f}/{:.3f}".format(r2_med,r2_25))
+        logger.info("test_99_canvass:: residual median/90th: {:.2f}/{:.2f}".format(error_med,error_90))
+        logger.info("test_99_canvass:: fraction nan {:.3f}".format(fraction_nan))
         with self.subTest(self.i_subtest):
             assert fraction_nan < 0.01, fraction_nan
         self.i_subtest += 1

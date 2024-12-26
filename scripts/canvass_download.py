@@ -155,10 +155,26 @@ def read_xy_from_assay_cid(df,cid_assay=None):
                    for c,a in cid_assay]
     return data_subset
 
+def inactive_cid_assays():
+    """
+
+    :return: list, each elemnet tuple of (compound id, assay) of inactive curves
+    """
+    return [
+        [3037629, 1347357],
+        [134827992, 1347352],
+        [134828028, 1347368],
+        [134827947,1347371],
+        [12110448, 1347364],
+        [73659,1347370],
+        [134827997,1347375]
+    ]
+
+
 def exemplar_cid_assays():
     """
 
-    :return: list, each elemnet tuple of (compound id, assay)
+    :return: list, each elemnet tuple of (compound id, assay) of active curves
     """
     return [
         [21123718, 1347368],
