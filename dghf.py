@@ -2,12 +2,56 @@
 Hill fitting module TBD
 """
 import warnings
+import json
+from multiprocessing import Pool, cpu_count
 import numpy as np
 import numba
-from scipy.optimize import brute, minimize, fmin_powell
+import pandas
+from tqdm import tqdm
+from scipy.optimize import brute, minimize, fmin_powell, fmin, fmin_cg, fmin_bfgs
 from matplotlib import pyplot as plt
+import click
+from click import ParamType
 # float vector for numba
 float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
+
+
+@click.group()
+def cli():
+    """
+    Defines the click command line interface; nothing to do
+    """
+
+class FinishType(ParamType):
+    """
+    For conversion from string to actual brute finish function
+    """
+    def __init__(self):
+        """
+        Initialize; nothing to do
+        """
+
+    def get_metavar(self, _):
+        """
+        :return: help string for this
+        """
+        return 'Choice([fmin_powell, fmin, fmin_cg, fmin_bfgs])'
+
+    def convert(self, value, _, __):
+        """
+
+        :param value: string given by get_metavar
+        :return: actual function to use
+        """
+        convert_dict = {'fmin_powell':fmin_powell,
+                        'fmin':fmin,
+                        'fmin_cg':fmin_cg,
+                        'fmin_bfgs':fmin_bfgs}
+        lower = str(value).lower()
+        if lower in convert_dict:
+            return convert_dict[lower]
+        else:
+            self.fail(f"Invalid value: {value}. Expected {self.get_metavar(None)}")
 
 def get_fit_args(x,y):
     """
@@ -249,7 +293,8 @@ def _harmonize_range(range_v, bounds_v):
     range_i = []
     for r1, b1, func in zip(range_v, bounds_v, [max, min]):
         # if the bounds is inf or None, then stick with the original
-        range_i.append(r1 if b1 is None or np.isinf(b1) else func(r1, b1))
+        range_i.append(r1 if b1 is None or np.isinf(b1) or np.isnan(b1)
+                       else func(r1, b1))
     return range_i
 
 def _get_ranges(x,y,range_val_initial=None,range_conc_initial=None,
@@ -341,7 +386,10 @@ def set_bounds_if_inactive(inactive_range,x,y,
     :param bounds_n: user specified bounds; if more stringent will ovewrite what we find here
     :return: tuple of updated [bounds_min_v,bounds_max_v,bounds_log_K_a,bounds_n]
     """
-    if (inactive_range is not None) and any(x > 0):
+    range_defined = inactive_range is not None and \
+                    inactive_range[0] is not None and \
+                    inactive_range[1] is not None
+    if (range_defined and any(x > 0)):
         idx_x = np.where(x > 0)[0]
         x_non_zero = x[idx_x]
         min_r, max_r = min(inactive_range), max(inactive_range)
@@ -458,3 +506,116 @@ def gallery_plot(x_y,all_fit_kw,n_rows=None,n_cols=None,
     plt.tight_layout()
     plt.subplots_adjust(wspace=0.15, hspace=0.15)
     return fig
+
+
+def _ids_to_xy(in_df,col_x="Concentration (M)",col_y="Activity (%)",
+               col_id="Curve ID"):
+    """
+
+    :param in_df:  see _fit_df
+    :param col_x:  see _fit_df
+    :param col_y: see _fit_df
+    :param col_id: see _fit_df
+    :return: dictionary going from id to x,y assays
+    """
+    return {id_v: {'x': df_v[col_x].to_numpy(),
+                   'y': df_v[col_y].to_numpy()}
+            for id_v, df_v in in_df.groupby(col_id)}
+
+def _fit_df(in_df,n_jobs=None,col_x="Concentration (M)",
+            col_y="Activity (%)",col_id="Curve ID",**kw):
+    """
+
+    :param in_df: data frame
+    :param n_jobs:  number of processors
+    :param col_x: x column in dataframe to use
+    :param col_y:  y olumn in dataframe to use
+    :param col_id: id column to use
+    :param kw: passed to fit
+    :return: tuple of ( list of (x,y) of size N, list of ids of size N, list of fit kws of size N)
+    """
+    x_y_dict = _ids_to_xy(in_df, col_x, col_y, col_id)
+    ids = sorted(set(in_df[col_id]))
+    x_y = [x_y_dict[i] | kw for i in ids]
+    n_curves = len(x_y)
+    kw_tqdm = dict(total=n_curves,desc="Fitting")
+    if n_jobs is None or n_jobs in [0,1]:
+        all_fit_kw = list(tqdm(map(_fit_multiprocess,x_y),**kw_tqdm))
+    else:
+        # n_jobs is a number greater than 1 or less than 0
+        if n_jobs < 0:
+            # use all cpus except n_jobs
+            n_jobs = cpu_count() + n_jobs
+        with Pool(n_jobs) as p:
+            all_fit_kw = list(tqdm(p.imap(_fit_multiprocess, x_y),**kw_tqdm))
+    return x_y,ids,all_fit_kw
+
+def _fit_file_helper(input_file,output_file=None,col_id="Curve ID",**kw):
+    """
+
+    :param input_file: input file, should be csv
+    :param output_file: output file, should be csv or json
+    :param col_id: id column in input_file
+    :param kw:  see _fit_df
+    :return: nothing
+    """
+    # check the file extensions
+    if not input_file.endswith('.csv'):
+        raise click.BadParameter('Input file must have a .csv extension.')
+    if not (output_file.endswith('.csv') | output_file.endswith('.json')):
+        raise click.BadParameter('Input file must have a .csv or .json extension.')
+    if output_file is None:
+        output_file = f"{input_file}_PRH.csv"
+    df = pandas.read_csv(input_file)
+    _, ids, all_fit_kw = _fit_df(in_df=df,**kw)
+    list_of_dicts = [kw | {col_id:id_v} for kw,id_v in zip(all_fit_kw,ids)]
+    if output_file.endswith(".csv"):
+        pandas.DataFrame(list_of_dicts).to_csv(output_file,index=False)
+    elif output_file.endswith(".json"):
+        with open(output_file,'w',encoding="utf8") as f:
+            json.dump(list_of_dicts,f)
+
+@cli.command()
+@click.option('--input_file', required=True,type=click.Path(exists=True,dir_okay=False),
+              help="Name of input file (must be csv)")
+@click.option('--output_file', required=False,type=click.Path(dir_okay=False),
+              help="Name of output file (json, csv supported)")
+@click.option('--col_x', required=False,type=str,
+              help="x column (e.g., concentation)",default="Concentration (M)")
+@click.option('--col_y', required=False,type=str,
+              help="y column (e.g., activity)",default="Activity (%)")
+@click.option('--col_id', required=False,type=str,
+              help="id column (e.g., concentation)",default="Curve ID")
+@click.option('--coarse_n', required=False,
+              default=7,type=int,help="Number of coarse grid points")
+@click.option('--fine_n', required=False,
+              default=100,type=int,help="Number of fine grid points for potency")
+@click.option('--bounds_min_v',required=False, nargs=2, type=float,
+              default=[None,None],help="Bounds for minimum fit value")
+@click.option('--bounds_max_v',required=False, nargs=2, type=float,
+              default=[None,None],help="Bounds for maximum fit value")
+@click.option('--bounds_log_K_a',required=False, nargs=2, type=float,
+              default=[None,None],help="Bounds for natural logarithm of Ka")
+@click.option('--bounds_n',required=False, nargs=2, type=float,
+              default=[None,None],help="Bounds for hill coefficient")
+@click.option('--inactive_range',required=False, nargs=2, type=float,
+              default=[None,None],help="Bounds for hill coefficient")
+@click.option('--method',required=False,  type=str,
+              default='L-BFGS-B',help="Bounds for hill coefficient")
+@click.option('--finish',required=False,  type=FinishType(),
+              default='fmin_powell',help="Function for coarse grid finishing")
+@click.option('--n_jobs',required=False,  type=int,
+              default=1,help="Number of cores to use; defaults to 1")
+def fit_file(**kw):
+    """
+
+    :param kw: see  _fit_file_helper
+    :return: see _fit_file_helper
+    """
+    # convert to correct spelling; click forces lowercase
+    kw["bounds_log_K_a"] = kw['bounds_log_k_a']
+    del kw['bounds_log_k_a']
+    return _fit_file_helper(**kw)
+
+if __name__ == '__main__':
+    cli()

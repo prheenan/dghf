@@ -45,7 +45,7 @@ def process_canvass_df(d,aid=""):
     return df_to_ret.sort_values(by=["Curve ID","Concentration (M)"],ignore_index=True)
 
 def read_canvass_data(out_dir="./out/test/cache_canvass",aids=None,
-                      random_sample=None,random_seed=None):
+                      random_sample=None,random_seed=None,n_max_assays=None):
     """
     The default aids were found as follows
 
@@ -57,6 +57,10 @@ def read_canvass_data(out_dir="./out/test/cache_canvass",aids=None,
     - There may be a way to get them programatically (TBD?)
 
     :param out_dir: where to output/cache the data. If None (not recommended), won't cache
+    :param aids: list of ais to use (defaults to canvass
+    :param random_sample: how many to randomly sample without replacement
+    :param random_seed: only used if random sample is not none, passed to np.random.seed
+    :param n_max_assays: maximum number of assays to read. If none, reads all
     :return: all canvass data
     """
     if out_dir is not None:
@@ -114,7 +118,9 @@ def read_canvass_data(out_dir="./out/test/cache_canvass",aids=None,
                 1347402]
     time_sleep = 4
     all_dfs = []
-    for aid in tqdm(aids):
+    for i_aid,aid in enumerate(tqdm(aids)):
+        if n_max_assays is not None and i_aid >= n_max_assays:
+            break
         file_v = os.path.join(out_dir,f"{aid}.csv") if out_dir is not None else None
         if file_v is not None and (not os.path.isfile(file_v)):
             return_v = requests.\

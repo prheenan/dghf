@@ -4,53 +4,42 @@ Testing module for hill fitter
 import unittest
 import warnings
 import platform
+import json
 import logging
-from multiprocessing import Pool, cpu_count
+import tempfile
+import pandas
 from tqdm import tqdm
+from click.testing import CliRunner
 import numpy as np
 import plotly.graph_objects as go
 from scipy.stats import linregress
 import dghf
 from scripts import canvass_download
+from scripts import simulated_data
 from scripts import prh_profile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def _get_x_y_k(log10_i=-9,log10_f=-4,noise_scale=0,n_zero=0,n_nan=0,n_size=11,**kw):
-    """
-
-    :param log10_i: which magnitude to start (e.g., -6 is 1 uM
-    :param log10_f:  which magnitude to end  (e.g., -3 is 1 mM)
-    :param noise_scale: scale of noise
-    :param n_zero: number of points at zero concentration
-    :param n_nan: number of points with nan
-    :param kw: see hill_log_Ka
-    :return: tuple of (x values, y values, kw)
-    """
-    x = np.logspace(log10_i, log10_f, num=n_size,base=10,endpoint=True)
-    y = dghf.hill_log_Ka(x=x, **kw) + \
-        np.random.normal(loc=0,scale=noise_scale,size=x.size)
-    if n_zero > 0:
-        # add in the zero points
-        x = [0 for _ in range(n_zero)] + list(x)
-        y = list(kw["min_v"] + np.random.normal(loc=0,scale=noise_scale,size=n_zero)) + list(y)
-    if n_nan > 0:
-        x = [min(x)] * n_nan + list(x)
-        y = [np.nan] * n_nan + list(y)
-    return np.array(x),np.array(y),kw
-
 
 class MyTestCase(unittest.TestCase):
 
     def __init__(self,*args,**kw):
+        """
+
+        :param args:  see unittest.TestCase __init__
+        :param kw: see unittest.TestCase __init__
+        """
         super().__init__(*args,**kw)
         self.i_subtest = 0
 
     @classmethod
     def setUpClass(cls):
+        """
+        download the data and make the simulated data shared by all the tests
+        """
         np.random.seed(42)
-        cls.simulated_data = simulated_data()
+        cls.simulated_data = simulated_data.simulated_data()
         cls.df_canvass = canvass_download.\
             read_canvass_data(out_dir="./out/test/cache_canvass")
 
@@ -181,7 +170,7 @@ class MyTestCase(unittest.TestCase):
             r2_thresh = 0.94 if lower else 0.98
             slope_thresh = 0.94 if lower else 0.98
             resid_thresh = 3
-            kw_for_fit = dict(x=x, y=y, bounds_n=[0,np.inf])
+            kw_for_fit = {'x':x, 'y':y, 'bounds_n':[0,np.inf]}
             # fit with and without inactive range;
             kw_fit_with_range = dghf.fit(inactive_range=[-50, 50], **kw_for_fit)
             kw_fit_without_range = dghf.fit(**kw_for_fit)
@@ -240,23 +229,67 @@ class MyTestCase(unittest.TestCase):
             assert max_of_median < 0.035, max_of_median
         self.i_subtest += 1
 
+    def test_98_canvass_subset(self):
+        runner = CliRunner()
+        x_y_dict = dghf._ids_to_xy(in_df=MyTestCase.df_canvass)
+        subset = sorted(x_y_dict.keys())[:30]
+        x_y = [x_y_dict[i] for i in subset]
+        df_subset = MyTestCase.df_canvass[MyTestCase.df_canvass["Curve ID"].isin(subset)].\
+            sort_values(by="Curve ID",ignore_index=True)
+        bounds_n = [0,np.inf]
+        df_fit_directly = pandas.DataFrame([dghf.fit(**tmp,bounds_n=bounds_n)
+                                            for tmp in x_y])
+        # test the full stack
+        with tempfile.NamedTemporaryFile(suffix=".csv") as in_f, \
+             tempfile.NamedTemporaryFile(suffix=".csv") as out_f_csv, \
+             tempfile.NamedTemporaryFile(suffix=".json") as out_f_json:
+            # output a subset of the data
+            df_subset.to_csv(in_f.name, index=False)
+            arg_bounds = ['--bounds_n',*bounds_n]
+            # call the function for csv
+            self._invoke(runner, args=["fit-file",
+                                       "--input_file", in_f.name,
+                                       "--output_file",out_f_csv.name,
+                                       *arg_bounds])
+            df_found_csv = pandas.read_csv(out_f_csv.name)
+            # call the function for json
+            runner.invoke(dghf.cli,["fit-file",
+                                         "--input_file",in_f.name,
+                                         "--output_file",out_f_json.name,
+                                         *arg_bounds],
+                          catch_exceptions=False)
+            # read in the json
+            with open(out_f_json.name,'r',encoding="utf8") as f:
+                json_found = json.load(f)
+            # make sure CSV = JSON = what we would expect from calling directly
+            df_json = pandas.DataFrame(json_found)
+            cols_to_check = ["min_v", "max_v", "log_K_a", "n"]
+            # make sure that the json and csv data are the same
+            with self.subTest(i=self.i_subtest):
+                np.testing.assert_allclose(df_json[cols_to_check],
+                                           df_found_csv[cols_to_check])
+            self.i_subtest += 1
+            # directly check that if we call the code directly the results
+            # are the same (with 5%, since algorithms are random)
+            with self.subTest(i=self.i_subtest):
+                np.testing.assert_allclose(df_json[cols_to_check],
+                                           df_fit_directly[cols_to_check],rtol=0.05)
+            self.i_subtest += 1
+            # redundant but go ahead and check csv as well
+            with self.subTest(i=self.i_subtest):
+                np.testing.assert_allclose(df_found_csv[cols_to_check],
+                                           df_fit_directly[cols_to_check],rtol=0.05)
+            self.i_subtest += 1
 
     def test_99_canvass(self):
         """
         Test the canvass data set, makng sure the residuals and R2 look OK
         """
         self.i_subtest = 0
-        x_y_dict = {id_v: {'x':df_v["Concentration (M)"].to_numpy(),
-                           'y':df_v["Activity (%)"].to_numpy()}
-                    for id_v, df_v in MyTestCase.df_canvass.groupby("Curve ID")}
-        ids = sorted(set(MyTestCase.df_canvass["Curve ID"]))
-        x_y = [x_y_dict[i] for i in ids]
-        n_pool = cpu_count() - 1
+        x_y, _, all_fit_kw = dghf._fit_df(in_df=MyTestCase.df_canvass,
+                                          n_jobs=-1,col_x="Concentration (M)",
+                                          col_y="Activity (%)",col_id="Curve ID")
         n_curves = len(x_y)
-        with Pool(n_pool) as p:
-            all_fit_kw = list(tqdm(p.imap(dghf._fit_multiprocess, x_y),
-                                   total=n_curves,
-                                   desc="Fitting CANVASS"))
         y_pred_arr = []
         for (x_y_kw), kw in tqdm(zip(x_y, all_fit_kw),desc="Predict CANVASS",
                                  total=n_curves):
@@ -291,6 +324,21 @@ class MyTestCase(unittest.TestCase):
             assert error_90 <= 4.3
         self.i_subtest += 1
 
+
+    def _invoke(self,runner, args):
+        """
+
+        :param runner: cli runner
+        :param args: argumnets to provide to runner
+        :return:  nothing, tests the function returns no error
+        """
+        with self.subTest(i=self.i_subtest):
+            result = runner.invoke(dghf.cli, args, catch_exceptions=False)
+        self.i_subtest += 1
+        with self.subTest(i=self.i_subtest):
+            assert result.exit_code == 0
+        self.i_subtest += 1
+
 def _safe_regress(x,y):
     """
 
@@ -321,38 +369,7 @@ def _debug_plot(x,y,kw_fit):
     fig.update_layout(xaxis_type="log")
     fig.show()
 
-def simulated_data():
-    """
 
-    :return: list of tuples, where each tuple is like
-
-    ( (x values, y values, expected parameters), dictionary of error terms
-    for  _assert_close_kw)
-    """
-    kw_fit_1 = {'min_v':10, 'max_v':100, 'log_K_a':np.log(1e-6),'n':1}
-    x_y_k_err = [
-        [_get_x_y_k(-7, -4, **kw_fit_1),{'atol':1e-4}],
-        [_get_x_y_k(-7, -4, noise_scale=5,**kw_fit_1),
-         {'rtol':0.15,'atol_signal':9}],
-        [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,**kw_fit_1),
-         {'rtol':0.15,'atol_signal':9}],
-        [_get_x_y_k(-7, -4, noise_scale=5, n_zero=2,n_nan=2, **kw_fit_1),
-         {'rtol':0.5, 'atol_signal':9}],
-        # oops all nans
-        [ [[np.nan] * 11, [np.nan]*11,
-           dict(min_v=np.nan, max_v=np.nan, log_K_a=np.nan,n=np.nan)], {}],
-        # small number
-        [_get_x_y_k(-7, -4, n_size=4,**kw_fit_1), {"atol":1e-4}],
-        # try only going to 10 uM (-5)
-        [_get_x_y_k(-7, -5, noise_scale=5, **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6),n=1)),
-         {'rtol':0.16,'atol_signal':9}],
-        # try only 8 points
-        [_get_x_y_k(-7, -4, noise_scale=5,n_size=8,
-                    **dict(min_v=10, max_v=100, log_K_a=np.log(1e-6), n=1)),
-         {'rtol':0.23, 'atol_signal':26}],
-
-    ]
-    return x_y_k_err
 
 
 

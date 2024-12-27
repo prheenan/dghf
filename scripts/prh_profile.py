@@ -14,7 +14,7 @@ sys.path.append("../")
 np.bool8 = np.bool
 from plotly import express as px
 from plotly.subplots import make_subplots
-import hill_test
+from scripts import simulated_data
 import dghf
 
 def run_many_times(repeats,x_y_kw,bounds_n):
@@ -28,15 +28,15 @@ def run_many_times(repeats,x_y_kw,bounds_n):
     """
     for _ in range(repeats):
         for x,y,_ in x_y_kw:
-            dghf.fit(x=x, y=y, bounds=bounds_n)
+            dghf.fit(x=x, y=y, bounds_n=bounds_n)
 
 def run():
     """
     Runs the profiling code
     """
-    simulated_data = hill_test.MyTestCase().simulated_data
+    data = simulated_data.simulated_data()
     # ignore the all nan data set
-    x_y_kw = [s[0] for s in simulated_data if
+    x_y_kw = [s[0] for s in data if
               not set(s[0][-1].values()) == set([np.nan])]
     # all of the simulated data has positive hill coefficient
     bounds_n = [0, np.inf]
@@ -69,7 +69,7 @@ def plot_error_and_time(kw_fit_arr, x_y_kw, title, bounds_n, x="coarse_n",
     df_error_n, df_time_n = error_values(kw_fit_arr=kw_fit_arr, x_y_kw=x_y_kw,
                                          bounds_n=bounds_n,
                                          time_repeats=time_repeats)
-    x_vals = sorted(set([e for kw in kw_fit_arr for e in kw.keys()]))
+    x_vals = sorted({e for kw in kw_fit_arr for e in kw.keys()})
     if convert_v is not None:
         for d in [df_error_n, df_time_n]:
             for x in x_vals:
