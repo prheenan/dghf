@@ -194,13 +194,19 @@ def exemplar_cid_assays():
         [135419370, 1347350]
     ]
 
-def demo_x_y_data(df=None):
+def demo_x_y_data(df=None,cid_assay=None):
+    """
+
+    :param df: dataframe to read from; defaults to all canvass data
+    :param cid_assay: list of length N; each element like <cid, assay>
+    :return: list of length N, each element is x and y
+    """
     if df is None:
         df = read_canvass_data()
-    cid_assay = exemplar_cid_assays()
+    if cid_assay is None:
+        cid_assay = exemplar_cid_assays()
     x_y = read_xy_from_assay_cid(df, cid_assay=cid_assay)
     return x_y
-
 
 def run():
     """

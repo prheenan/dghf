@@ -217,7 +217,7 @@ class MyTestCase(unittest.TestCase):
                          bounds_n=[0, np.inf], time_repeats=10,
                          x_y_kw=x_y_kw)
         median_per_run = df_time_n.groupby("Parameter set").\
-            median()["Time/run (s/run)"]
+            median()["Time/curve (s/fit)"]
         median_of_median = np.median(median_per_run)
         max_of_median = np.max(median_per_run)
         logger.info("test_04_timing:: median-median/max-median: {:.3f}s/{:.3f}s".\

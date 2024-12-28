@@ -9,6 +9,7 @@ import cProfile
 import functools
 import pstats
 import pandas
+import tqdm
 import numpy as np
 sys.path.append("../")
 np.bool8 = np.bool
@@ -47,9 +48,49 @@ def run():
     stats = pstats.Stats(profiler).sort_stats('cumtime')
     stats.dump_stats('program.prof')
 
+def _plot_data(x,kw_fit_arr,convert_v,df_error_n, df_time_n,height,width,title,
+               log_x=False):
+    """
+
+    :param kw_fit_arr: list, length M, each element a dictionary of fit params
+    :param title: for plot
+    :param convert_v: dictionary, each element converts from key of
+    kw_fit_arr elements to function to convert
+    :param height: px, of plot
+    :param width:  px, of plot
+    :param log_x:  if x should be plotted log-style
+    :return: nothing
+    """
+    x_vals = sorted({e for kw in kw_fit_arr for e in kw.keys()})
+    if convert_v is not None:
+        for d in [df_error_n, df_time_n]:
+            for x_name in x_vals:
+                d[x_name] = [convert_v[x_name](e) for e in d[x]]
+            d.sort_values(by=x_vals, inplace=True)
+    df_error_median_n = df_error_n[
+        ["Error (%)", "Parameter set"] + x_vals].groupby(
+        ["Parameter set"] + x_vals).median().reset_index()
+    df_time_and_error = df_error_median_n.merge(df_time_n,
+                                                on=["Parameter set"] + x_vals)
+    # Create subplots
+    category_orders = {x: sorted(set(df_time_and_error[x]))}
+    fig = make_subplots(rows=2, cols=1, horizontal_spacing=0.15)
+    fig.add_trace(
+        px.box(x=x, y="Error (%)", points="all", data_frame=df_time_and_error,
+               log_y=True, category_orders=category_orders).data[0], row=1,
+        col=1)
+    fig.add_trace(px.box(df_time_n, x=x, y="Time/curve (s/fit)", points="all",
+                         category_orders=category_orders).data[0], row=2, col=1)
+    fig.update_layout(autosize=False, height=height, width=width, title=title)
+    log = 'log' if log_x else None
+    fig.update_xaxes(title_text=x, row=1, col=1, type=log)
+    fig.update_yaxes(title_text="Error (%)", type='log', row=1, col=1)
+    fig.update_xaxes(title_text=x, row=2, col=1, type=log)
+    fig.update_yaxes(title_text="Time/curve (s/fit)", row=2, col=1)
+    fig.show(renderer="iframe")
 
 def plot_error_and_time(kw_fit_arr, x_y_kw, title, bounds_n, x="coarse_n",
-                        time_repeats=10,
+                        time_repeats=5,
                         convert_v=None, height=600, width=400, log_x=False):
     """
 
@@ -69,33 +110,8 @@ def plot_error_and_time(kw_fit_arr, x_y_kw, title, bounds_n, x="coarse_n",
     df_error_n, df_time_n = error_values(kw_fit_arr=kw_fit_arr, x_y_kw=x_y_kw,
                                          bounds_n=bounds_n,
                                          time_repeats=time_repeats)
-    x_vals = sorted({e for kw in kw_fit_arr for e in kw.keys()})
-    if convert_v is not None:
-        for d in [df_error_n, df_time_n]:
-            for x in x_vals:
-                d[x] = [convert_v[x](e) for e in d[x]]
-            d.sort_values(by=x_vals, inplace=True)
-    df_error_median_n = df_error_n[
-        ["Error (%)", "Parameter set"] + x_vals].groupby(
-        ["Parameter set"] + x_vals).median().reset_index()
-    df_time_and_error = df_error_median_n.merge(df_time_n,
-                                                on=["Parameter set"] + x_vals)
-    # Create subplots
-    category_orders = {x: sorted(set(df_time_and_error[x]))}
-    fig = make_subplots(rows=2, cols=1, horizontal_spacing=0.15)
-    fig.add_trace(
-        px.box(x=x, y="Error (%)", points="all", data_frame=df_time_and_error,
-               log_y=True, category_orders=category_orders).data[0], row=1,
-        col=1)
-    fig.add_trace(px.box(df_time_n, x=x, y="Time (s)", points="all",
-                         category_orders=category_orders).data[0], row=2, col=1)
-    fig.update_layout(autosize=False, height=height, width=width, title=title)
-    log = 'log' if log_x else None
-    fig.update_xaxes(title_text=x, row=1, col=1, type=log)
-    fig.update_yaxes(title_text="Error (%)", type='log', row=1, col=1)
-    fig.update_xaxes(title_text=x, row=2, col=1, type=log)
-    fig.update_yaxes(title_text="Time (s)", row=2, col=1)
-    fig.show(renderer="iframe")
+    return _plot_data(x,kw_fit_arr,convert_v,df_error_n,
+                      df_time_n,height,width,title,log_x=log_x)
 
 
 def error_values(kw_fit_arr, x_y_kw, bounds_n=None, time_repeats=0):
@@ -109,7 +125,7 @@ def error_values(kw_fit_arr, x_y_kw, bounds_n=None, time_repeats=0):
     """
     errors = []
     times = []
-    for j,kw_params in enumerate(kw_fit_arr):
+    for j,kw_params in enumerate(tqdm.tqdm(kw_fit_arr)):
         for i, (x, y, kw) in enumerate(x_y_kw):
             _f_callable = functools.partial(dghf.fit,x=x, y=y,
                                             bounds_n=bounds_n, **kw_params)
@@ -120,7 +136,7 @@ def error_values(kw_fit_arr, x_y_kw, bounds_n=None, time_repeats=0):
                 time_avg = np.nan
             times.append(
                 {"Hyperparameter set":j,"Parameter set": i,
-                 "Time/run (s/run)":time_avg/time_repeats,
+                 "Time/curve (s/fit)":time_avg/time_repeats,
                  "Time (s)": time_avg, **kw_params})
             for k, v in kw_fit.items():
                 v_expected = kw[k]
