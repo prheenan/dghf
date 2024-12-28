@@ -1,7 +1,7 @@
 """
 Module to run profile on like so:
 
-python prh_profile.py ; snakeviz program.prof
+rm -f program.prof; python prh_profile.py ; snakeviz program.prof
 """
 import sys
 import timeit
@@ -49,7 +49,7 @@ def run():
     stats.dump_stats('program.prof')
 
 def _plot_data(x,kw_fit_arr,convert_v,df_error_n, df_time_n,height,width,title,
-               log_x=False):
+               log_x=False,log_time=False,log_error=True):
     """
 
     :param kw_fit_arr: list, length M, each element a dictionary of fit params
@@ -59,6 +59,8 @@ def _plot_data(x,kw_fit_arr,convert_v,df_error_n, df_time_n,height,width,title,
     :param height: px, of plot
     :param width:  px, of plot
     :param log_x:  if x should be plotted log-style
+    :param log_time: if true, time is plotted in log scale
+    :param log_error: if true, error is on log scale
     :return: nothing
     """
     x_vals = sorted({e for kw in kw_fit_arr for e in kw.keys()})
@@ -83,11 +85,13 @@ def _plot_data(x,kw_fit_arr,convert_v,df_error_n, df_time_n,height,width,title,
                          category_orders=category_orders).data[0], row=2, col=1)
     fig.update_layout(autosize=False, height=height, width=width, title=title)
     log = 'log' if log_x else None
+    type_time = 'log' if log_time else None
+    type_error = 'log' if log_error else None
     fig.update_xaxes(title_text=x, row=1, col=1, type=log)
-    fig.update_yaxes(title_text="Error (%)", type='log', row=1, col=1)
+    fig.update_yaxes(title_text="Error (%)", type=type_error, row=1, col=1)
     fig.update_xaxes(title_text=x, row=2, col=1, type=log)
-    fig.update_yaxes(title_text="Time/curve (s/fit)", row=2, col=1)
-    fig.show(renderer="iframe")
+    fig.update_yaxes(title_text="Time/curve (s/fit)", row=2, col=1,type=type_time)
+    return fig
 
 def plot_error_and_time(kw_fit_arr, x_y_kw, title, bounds_n, x="coarse_n",
                         time_repeats=5,

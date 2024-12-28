@@ -229,6 +229,17 @@ class MyTestCase(unittest.TestCase):
             assert max_of_median < 0.035, max_of_median
         self.i_subtest += 1
 
+    def test_05_demo_data(self):
+        """
+        make sure the demo plotting works
+        """
+        all_cids = (canvass_download.inactive_cid_assays() +
+                    canvass_download.exemplar_cid_assays())
+        x_y = canvass_download.demo_x_y_data(df=MyTestCase.df_canvass,
+                                             cid_assay=all_cids)
+        all_fit_kw = [dghf.fit(x, y) for x, y in x_y]
+        dghf.gallery_plot(x_y=x_y, all_fit_kw=all_fit_kw)
+
     def test_98_canvass_subset(self):
         runner = CliRunner()
         x_y_dict = dghf._ids_to_xy(in_df=MyTestCase.df_canvass)

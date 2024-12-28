@@ -14,6 +14,7 @@ import click
 from click import ParamType
 # float vector for numba
 float_vector = numba.types.Array(dtype=numba.float64, ndim=1, layout="C")
+from scripts import canvass_download
 
 
 @click.group()
@@ -142,7 +143,7 @@ def hill_log_Ka_jacobian(min_v,max_v,log_K_a,n,x):
     ])
 
 
-@numba.jit(float_vector(numba.float64,numba.float64,numba.float64,numba.float64,float_vector))
+@numba.njit(float_vector(numba.float64,numba.float64,numba.float64,numba.float64,float_vector))
 def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     """
     See https://reaction-networks.net/wiki/Hill_kinetics
@@ -158,7 +159,7 @@ def hill_log_Ka(min_v,max_v,log_K_a,n,x):
     """
     return min_v + (max_v - min_v )/( (np.exp(log_K_a)/x)**n + 1)
 
-@numba.jit(numba.float64(float_vector,float_vector,float_vector,float_vector))
+@numba.njit(numba.float64(float_vector,float_vector,float_vector,float_vector))
 def hill_cost(args,x,y,y_at_x_zero):
     """
 
@@ -559,6 +560,8 @@ def _fit_file_helper(input_file,output_file=None,col_id="Curve ID",**kw):
     :param kw:  see _fit_df
     :return: nothing
     """
+    if output_file is None:
+        output_file = input_file + "_out.csv"
     # check the file extensions
     if not input_file.endswith('.csv'):
         raise click.BadParameter('Input file must have a .csv extension.')
@@ -575,11 +578,25 @@ def _fit_file_helper(input_file,output_file=None,col_id="Curve ID",**kw):
         with open(output_file,'w',encoding="utf8") as f:
             json.dump(list_of_dicts,f)
 
+
+@cli.command()
+@click.option('--output_file', required=True,type=click.Path(dir_okay=False),
+              help="Name of output file (only csv supported)")
+@click.option('--random_sample', required=False,
+              default=None,type=int,help="Number of dose response curves to return")
+@click.option('--random_seed', required=False,
+              default=42,type=int,help="Random seed for sampling")
+@click.option('--out_dir', required=False,type=click.Path(dir_okay=True),
+              help="Directory to put the individual downloads",
+              default="./out/test/cache_canvass")
+def export_canvass(output_file,**kw):
+    canvass_download.read_canvass_data(**kw).to_csv(output_file,index=False)
+
 @cli.command()
 @click.option('--input_file', required=True,type=click.Path(exists=True,dir_okay=False),
               help="Name of input file (must be csv)")
 @click.option('--output_file', required=False,type=click.Path(dir_okay=False),
-              help="Name of output file (json, csv supported)")
+              help="Name of output file (json, csv supported)",default=None)
 @click.option('--col_x', required=False,type=str,
               help="x column (e.g., concentation)",default="Concentration (M)")
 @click.option('--col_y', required=False,type=str,

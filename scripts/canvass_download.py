@@ -194,6 +194,13 @@ def exemplar_cid_assays():
         [135419370, 1347350]
     ]
 
+def active_and_inactive_cids():
+    """
+
+    :return: list of both examplars and inactive cids
+    """
+    return sorted(exemplar_cid_assays() + inactive_cid_assays())
+
 def demo_x_y_data(df=None,cid_assay=None):
     """
 
