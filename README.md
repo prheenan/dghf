@@ -139,7 +139,15 @@ Options:
   --help                          Show this message and exit.
 ```
 
+As a concrete example, the following command runs the same fitting routine using 6 parallel jobs, a bounds on the Hill coefficient `n` between 0 and infinity, and an inactive range betwene -50 and 50:
 
+```
+python dghf.py fit-file --input_file "canvas.csv" --output_file "fit.csv" --bounds_n 0 inf --inactive_range -50 50 --n_jobs 6
+```
+
+## Additional examples
+
+Additional examples and documentation for the default settings are given in the [included notebook](example.ipynb)
 
 # Future work
 
