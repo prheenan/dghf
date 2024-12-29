@@ -461,6 +461,51 @@ def fit(x,y,coarse_n=7,fine_n=100,bounds_min_v = None,
     kw_fit = dict(zip(fit_final.param_names, minimize_v.x))
     return kw_fit
 
+def _format_axes(axs,ylabel='Activity\n(%)',
+                 xlabel='Cmpd [M]',wspace=0.15, hspace=0.15):
+    """
+
+    :param axs: list of axes
+    :param ylabel: y axis label
+    :param xlabel: x axis label
+    :param wspace: see plt.subplots_adjust
+    :param hspace: see plt.subplots_adjust
+    :return: Nothing, but format axes for plot
+    """
+    for ax in axs.flat:
+        ax.set(xlabel=xlabel, ylabel=ylabel)
+    for ax in axs.flat:
+        ax.label_outer()
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=wspace, hspace=hspace)
+
+def _single_plot(ax,x,y,kw,color,linestyle="--",
+                 log_points=50,factor_extra=1):
+    """
+
+    :param ax: axis
+    :param x: x value
+    :param y: y value
+    :param kw: keywords
+    :param color: colors
+    :param linestyle: style of the line
+    :param log_points: number of log points
+    :param factor_extra: how much extra to show on fit
+    :return: nothing, plots the data
+    """
+    x_pred = np.logspace(np.log10(min(x)/factor_extra),
+                         np.log10(max(x)*factor_extra),
+                         base=10, endpoint=True,num=log_points)
+    y_pred = hill_log_Ka(x=x_pred, **kw)
+    plot_data = ax.semilogx(x, y, 'o', markersize=4, markerfacecolor='w',
+                            color=color)
+    plot_lines = ax.semilogx(x_pred, y_pred, linestyle, color='k', linewidth=1.5)
+    return plot_data, plot_lines
+
+def _plotting_colors():
+    # the olive color isn't readable
+    return [c for i, c in enumerate(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+            if i != 8]
 
 def gallery_plot(x_y,all_fit_kw,n_rows=None,n_cols=None,
                  ids_plot=None,figsize=(5,4)):
@@ -478,10 +523,7 @@ def gallery_plot(x_y,all_fit_kw,n_rows=None,n_cols=None,
     if n_rows is None:
         n_rows = int(np.ceil(np.sqrt(len(all_fit_kw))))
         n_cols = n_rows
-    prop_cycle = plt.rcParams['axes.prop_cycle']
-    # the olive color isn't readable
-    colors = [c for i,c in enumerate(prop_cycle.by_key()['color'])
-              if i != 8]
+    colors = _plotting_colors()
     plt.close("all")
     plt.style.use("bmh")
     fig, axs = plt.subplots(n_rows,n_cols,figsize=figsize,
@@ -489,23 +531,14 @@ def gallery_plot(x_y,all_fit_kw,n_rows=None,n_cols=None,
     i_plot = 0
     for row in axs:
         for col in row:
-            x,y  = x_y[i_plot]
+            x, y = x_y[i_plot]
             kw = all_fit_kw[i_plot]
-            x_pred = np.logspace(np.log10(min(x)),np.log10(max(x)),
-                                 base=10,endpoint=True)
-            y_pred = hill_log_Ka(x=x_pred, **kw)
-            col.semilogx(x,y,'o',markersize=4,markerfacecolor='w',
+            _single_plot(ax=col, x=x, y=y, kw=kw,
                          color=colors[i_plot % len(colors)])
-            col.semilogx(x_pred,y_pred,'--',color='k',linewidth=1.5)
             if ids_plot is not None and show_title_debug:
-                col.set_title(ids_plot[i_plot],fontsize=6,y=0.7,x=0.2)
+                col.set_title(ids_plot[i_plot], fontsize=6, y=0.7, x=0.2)
             i_plot += 1
-    for ax in axs.flat:
-        ax.set(xlabel='Cmpd [M]', ylabel='Activity\n(%)')
-    for ax in axs.flat:
-        ax.label_outer()
-    plt.tight_layout()
-    plt.subplots_adjust(wspace=0.15, hspace=0.15)
+    _format_axes(axs)
     return fig
 
 

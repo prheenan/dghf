@@ -1,5 +1,8 @@
 # dghf
-`dghf` (damn good Hill fit) is a repository for fitting the [Hill equation](https://en.wikipedia.org/wiki/Hill_equation_(biochemistry)) to dose response curves. `dghf` is
+
+![Animation of fitson CANVASS data](out/gallery.gif)
+
+`dghf` (Darn Good Hill Fit) is a repository for fitting the [Hill equation](https://en.wikipedia.org/wiki/Hill_equation_(biochemistry)) to dose response curves. `dghf` is
 
 - **Robust**, fitting the >17,000 dose response curves of the [CANVASS data set](https://pubmed.ncbi.nlm.nih.gov/30648156/) with median residual of less than 1.5% (examples below)
 ![CANVASS examples](./out/canvass_examplars_with_inactive.svg)
